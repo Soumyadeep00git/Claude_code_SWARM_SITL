@@ -1,0 +1,5 @@
+pymavlink>=2.4.40
+matplotlib>=3.8
+numpy>=1.26
+flask>=3.0
+flask-socketio>=5.3

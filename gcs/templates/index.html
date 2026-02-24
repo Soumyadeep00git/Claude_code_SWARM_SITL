@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Swarm SITL — Web GCS</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.5/socket.io.min.js"></script>
+</head>
+<body>
+    <!-- TOP BAR -->
+    <header id="topbar">
+        <h1>SWARM SITL GCS</h1>
+        <span id="elapsed">00:00</span>
+        <span id="conn-status" class="disconnected">Disconnected</span>
+        <span style="color:#555; margin-left:auto; font-size:11px;">max {{ max_drones }} drones</span>
+    </header>
+
+    <!-- MAIN CONTENT -->
+    <div id="main">
+        <!-- LEFT: Canvas visualization -->
+        <div id="viz-panel">
+            <canvas id="swarm-canvas" width="580" height="580"></canvas>
+        </div>
+
+        <!-- RIGHT: Status + Commands + Drone Mgmt + Failure -->
+        <div id="control-panel">
+            <!-- Drone Management -->
+            <section id="drone-mgmt-section">
+                <h2>Drone Management</h2>
+                <div class="cmd-row">
+                    <button id="btn-launch-all" class="btn-launch">Launch All</button>
+                    <button id="btn-kill-all" class="btn-kill">Kill All</button>
+                </div>
+                <div id="drone-mgmt-grid"></div>
+            </section>
+
+            <!-- Drone status table -->
+            <section id="status-section">
+                <h2>Drone Status</h2>
+                <table id="status-table">
+                    <thead>
+                        <tr>
+                            <th>ID</th><th>Mode</th><th>Alt(m)</th>
+                            <th>Batt</th><th>Armed</th><th>FS</th>
+                            <th>State</th><th>Leader</th><th>Alive</th>
+                        </tr>
+                    </thead>
+                    <tbody id="status-body"></tbody>
+                </table>
+            </section>
+
+            <!-- Command panel -->
+            <section id="cmd-section">
+                <h2>Commands</h2>
+                <div class="cmd-row">
+                    <button id="btn-takeoff">Takeoff All</button>
+                    <input id="takeoff-alt" type="number" value="10" min="1" max="100" step="1">
+                    <label>m</label>
+                </div>
+                <div class="cmd-row">
+                    <button id="btn-land">Land All</button>
+                </div>
+
+                <h3>Formation</h3>
+                <div class="cmd-row">
+                    <select id="formation-shape">
+                        <option value="V">V</option>
+                        <option value="LINE">LINE</option>
+                        <option value="COLUMN">COLUMN</option>
+                        <option value="DIAMOND">DIAMOND</option>
+                    </select>
+                    <label>Hdg:</label>
+                    <input id="formation-heading" type="range" min="0" max="359" value="0">
+                    <span id="heading-val">0</span>&deg;
+                </div>
+                <div class="cmd-row">
+                    <label>Spc:</label>
+                    <input id="formation-spacing" type="range" min="3" max="20" value="8" step="0.5">
+                    <span id="spacing-val">8.0</span>m
+                    <button id="btn-formation">Set Formation</button>
+                </div>
+
+                <h3>Waypoint (GPS)</h3>
+                <div class="cmd-row">
+                    <select id="drone-select"></select>
+                    <input id="wp-lat" type="number" step="0.00001" placeholder="Lat">
+                    <input id="wp-lon" type="number" step="0.00001" placeholder="Lon">
+                    <input id="wp-alt" type="number" value="10" min="1" max="100" step="1" style="width:50px">
+                    <label>m</label>
+                    <button id="btn-waypoint">Go</button>
+                </div>
+                <div style="font-size:10px; color:#555; margin-top:2px;">
+                    Click canvas to set lat/lon for selected drone
+                </div>
+
+                <h3>Go To (NED offset)</h3>
+                <div class="cmd-row">
+                    <select id="ned-drone-select"></select>
+                    <input id="ned-north" type="number" step="1" placeholder="N (m)" style="width:65px">
+                    <input id="ned-east" type="number" step="1" placeholder="E (m)" style="width:65px">
+                    <input id="ned-alt" type="number" value="10" min="1" max="100" step="1" style="width:50px">
+                    <label>m</label>
+                    <button id="btn-goto-ned">Go NED</button>
+                </div>
+                <div style="font-size:10px; color:#555; margin-top:2px;">
+                    Offset from leader/centroid position
+                </div>
+            </section>
+
+            <!-- Failure injection -->
+            <section id="failure-section">
+                <h2>Failure Injection</h2>
+                <div id="failure-grid"></div>
+            </section>
+        </div>
+    </div>
+
+    <!-- BOTTOM: Event log -->
+    <div id="log-panel">
+        <h2>Event Log</h2>
+        <div id="log-scroll"></div>
+    </div>
+
+    <script>
+        const MAX_DRONES = {{ max_drones }};
+    </script>
+    <script src="{{ url_for('static', filename='js/swarm.js') }}"></script>
+</body>
+</html>
