@@ -26,9 +26,12 @@ class DroneState:
     leader_id: int = 1
     alive_count: int = 0
 
+    # Optional mesh network stats (set by agent when mesh sim is active)
+    mesh_stats: dict | None = None
+
     def to_dict(self) -> dict:
         """Serialize for STATE_REPORT message."""
-        return {
+        d = {
             "drone_id": self.drone_id,
             "lat": self.lat,
             "lon": self.lon,
@@ -46,6 +49,9 @@ class DroneState:
             "leader_id": self.leader_id,
             "alive_count": self.alive_count,
         }
+        if self.mesh_stats is not None:
+            d["mesh_stats"] = self.mesh_stats
+        return d
 
     def update_from_position(self, pos: dict):
         """Update from DroneConnection.get_position() result."""
@@ -92,6 +98,13 @@ class PeerTable:
         """Returns list of (drone_id, lat, lon, alt) for all known peers."""
         return [
             (did, p.lat, p.lon, p.alt)
+            for did, p in self.peers.items()
+        ]
+
+    def get_all_states(self) -> list[tuple[int, float, float, float, float, float, float]]:
+        """Returns list of (drone_id, lat, lon, alt, vx, vy, vz) for all known peers."""
+        return [
+            (did, p.lat, p.lon, p.alt, p.vx, p.vy, p.vz)
             for did, p in self.peers.items()
         ]
 

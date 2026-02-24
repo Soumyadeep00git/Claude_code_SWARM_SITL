@@ -9,7 +9,7 @@ States:
   DEGRADED           — One or more peers lost, formation compacted
   COMMS_LOST         — No GCS contact → RTL
   COMMS_RECOVERY     — GCS restored, switching to GUIDED to rejoin
-  EMERGENCY_PROXIMITY — Too close to peer → HOLD
+  EMERGENCY_PROXIMITY — Too close to peer → active repulsion + PROXIMITY_ALERT
   EMERGENCY_BATTERY  — Low battery → LAND
   LANDED             — Terminal state after LAND
 
@@ -17,13 +17,15 @@ Priority: EMERGENCY_PROXIMITY > COMMS_LOST > EMERGENCY_BATTERY > peer staleness
 """
 
 import time
+import math
 import logging
 from enum import Enum
 from math import radians, sin, cos, sqrt, atan2
 
 from config import (
-    SAFE_DISTANCE_M, SAFE_DISTANCE_CLEAR_M, COMMS_TIMEOUT_S,
-    LOW_BATTERY_PCT, PEER_STALE_TIMEOUT_S, COMMS_RECOVERY_TIMEOUT_S,
+    COMMS_TIMEOUT_S, LOW_BATTERY_PCT,
+    PEER_STALE_TIMEOUT_S, COMMS_RECOVERY_TIMEOUT_S,
+    ISOLATION_RADIUS_M,
 )
 from mavlink_layer.drone_connection import DroneConnection
 from drone_agent.local_planner import LocalPlanner
@@ -66,13 +68,35 @@ class FailsafeManager:
         self._alive_peers: set[int] = set(expected_peers)  # Start assuming all alive
         self._recovery_start: float = 0.0
 
-        # Legacy flags for proximity hysteresis
-        self._proximity_triggered: bool = False
+        # Per-peer heartbeat tracking (P2P mesh)
+        self._peer_last_contact: dict[int, float] = {}
+
+        # Per-peer proximity tracking (prevents single-boolean oscillation)
+        self._proximity_peers: set[int] = set()
+        self._prox_log_times: dict[int, float] = {}  # Rate-limit logs per peer
+
+        # Configurable isolation radius (updated via SAFETY_CONFIG_CMD)
+        self.isolation_radius: float = ISOLATION_RADIUS_M
+
+    @property
+    def clear_distance(self) -> float:
+        """Hysteresis clear threshold: 1.5× isolation radius."""
+        return self.isolation_radius * 1.5
+
+    def set_isolation_radius(self, radius_m: float):
+        """Update isolation radius from SAFETY_CONFIG_CMD."""
+        self.isolation_radius = max(1.0, radius_m)
+        log.info("Drone %d: failsafe isolation radius set to %.1fm",
+                 self.drone_id, self.isolation_radius)
 
     def update_gcs_heartbeat(self):
         """Call whenever any UDP message arrives from GCS."""
         self.last_gcs_time = time.time()
         self._gcs_ever_contacted = True
+
+    def update_peer_heartbeat(self, peer_id: int):
+        """Call whenever a direct or relayed message arrives from a peer."""
+        self._peer_last_contact[peer_id] = time.time()
 
     def elect_leader(self) -> int:
         """Leader = min(alive_ids). Deterministic, no election messages needed."""
@@ -110,13 +134,20 @@ class FailsafeManager:
     # ── Peer health tracking ──────────────────────────────
 
     def _update_peer_health(self, peers: PeerTable):
-        """Scan PeerTable staleness, update alive set, emit alerts on changes."""
-        # Build alive set: self + non-stale peers that are in expected set
+        """Scan PeerTable staleness and direct heartbeats, update alive set."""
+        # Build alive set: self + peers alive via EITHER data source
         new_alive = {self.drone_id}
+        now = time.time()
         for pid in self._expected_peers:
             if pid == self.drone_id:
                 continue
-            if pid in peers.last_update and not peers.is_stale(pid, PEER_STALE_TIMEOUT_S):
+            # PeerTable path (GCS relay or P2P updates PeerTable)
+            peer_table_alive = (pid in peers.last_update and
+                                not peers.is_stale(pid, PEER_STALE_TIMEOUT_S))
+            # Direct heartbeat path (P2P mesh)
+            direct_alive = (pid in self._peer_last_contact and
+                            (now - self._peer_last_contact[pid]) <= PEER_STALE_TIMEOUT_S)
+            if peer_table_alive or direct_alive:
                 new_alive.add(pid)
 
         # Detect changes
@@ -138,28 +169,50 @@ class FailsafeManager:
     # ── Check helpers ─────────────────────────────────────
 
     def _check_proximity(self, peers: PeerTable, my_state: DroneState) -> bool:
-        """Check distance to all peers. Returns True if too close."""
+        """Check 3D distance to all peers using configurable isolation radius.
+        Returns True if ANY peer too close.
+        Uses per-peer tracking to prevent oscillation from mixed far/close peers."""
+        now = time.time()
+        iso_r = self.isolation_radius
+        clear_d = self.clear_distance
+
         for peer_id, peer in peers.peers.items():
             if peer_id == self.drone_id:
                 continue
             if peer.lat == 0.0 and peer.lon == 0.0:
                 continue
-            dist = _haversine_m(my_state.lat, my_state.lon, peer.lat, peer.lon)
-            if dist < SAFE_DISTANCE_M and not self._proximity_triggered:
-                self._proximity_triggered = True
-                self.planner.hold()
-                self._alert("PROXIMITY",
-                            f"Too close to drone {peer_id} ({dist:.1f}m < {SAFE_DISTANCE_M}m)",
-                            "HOLD")
-                log.warning("Drone %d: PROXIMITY — %.1fm from drone %d",
-                            self.drone_id, dist, peer_id)
-                return True
-            elif dist > SAFE_DISTANCE_CLEAR_M and self._proximity_triggered:
-                self._proximity_triggered = False
-                log.info("Drone %d: proximity clear", self.drone_id)
-        return self._proximity_triggered
+            dist_2d = _haversine_m(my_state.lat, my_state.lon, peer.lat, peer.lon)
+            dalt = abs(my_state.alt - peer.alt) if peer.alt > 0 else 0.0
+            dist_3d = (dist_2d ** 2 + dalt ** 2) ** 0.5
 
-    def _check_comms_lost(self) -> bool:
+            if dist_3d < iso_r:
+                if peer_id not in self._proximity_peers:
+                    # Newly too close — trigger hold and alert
+                    self._proximity_peers.add(peer_id)
+                    self.planner.hold()
+                    severity = "CRITICAL" if dist_3d < iso_r * 0.5 else "WARNING"
+                    self._alert("PROXIMITY",
+                                f"Too close to drone {peer_id} ({dist_3d:.1f}m 3D < {iso_r:.1f}m) [{severity}]",
+                                "HOLD")
+                    log.warning("Drone %d: PROXIMITY — %.1fm (3D) from drone %d [%s]",
+                                self.drone_id, dist_3d, peer_id, severity)
+                    self._prox_log_times[peer_id] = now
+                elif now - self._prox_log_times.get(peer_id, 0) > 2.0:
+                    # Rate-limited ongoing proximity log (every 2s per peer)
+                    log.warning("Drone %d: still close to drone %d (%.1fm 3D)",
+                                self.drone_id, peer_id, dist_3d)
+                    self._prox_log_times[peer_id] = now
+
+            elif dist_3d > clear_d and peer_id in self._proximity_peers:
+                # Peer cleared — remove from tracked set
+                self._proximity_peers.discard(peer_id)
+                self._prox_log_times.pop(peer_id, None)
+                log.info("Drone %d: proximity clear from drone %d (%.1fm 3D)",
+                         self.drone_id, peer_id, dist_3d)
+
+        return len(self._proximity_peers) > 0
+
+    def _check_gcs_lost(self) -> bool:
         """Returns True if GCS contact is lost."""
         if not self._gcs_ever_contacted:
             return False
@@ -177,7 +230,7 @@ class FailsafeManager:
             self._transition(SwarmState.EMERGENCY_PROXIMITY)
             return
 
-        if self._check_comms_lost():
+        if self._check_gcs_lost():
             self.conn.rtl()
             self._alert("COMMS_LOST",
                         f"No GCS contact for {time.time() - self.last_gcs_time:.1f}s",
@@ -202,7 +255,7 @@ class FailsafeManager:
             self._transition(SwarmState.EMERGENCY_PROXIMITY)
             return
 
-        if self._check_comms_lost():
+        if self._check_gcs_lost():
             self.conn.rtl()
             self._alert("COMMS_LOST",
                         f"No GCS contact for {time.time() - self.last_gcs_time:.1f}s",
@@ -242,7 +295,7 @@ class FailsafeManager:
     def _tick_comms_recovery(self, my_state: DroneState):
         """COMMS_RECOVERY: wait for GUIDED mode confirmed, then rejoin."""
         # Check if comms lost again
-        if self._check_comms_lost():
+        if self._check_gcs_lost():
             self.conn.rtl()
             self._alert("COMMS_LOST", "Comms lost again during recovery", "RTL")
             self._transition(SwarmState.COMMS_LOST)
@@ -268,15 +321,95 @@ class FailsafeManager:
             self.conn.set_mode("GUIDED")
 
     def _tick_emergency_proximity(self, peers: PeerTable, my_state: DroneState):
-        """EMERGENCY_PROXIMITY: clears when distance > SAFE_DISTANCE_CLEAR_M."""
+        """EMERGENCY_PROXIMITY: actively push away from close peers.
+        Clears when all peers > clear_distance."""
         # Re-check proximity — _check_proximity handles hysteresis
         still_close = self._check_proximity(peers, my_state)
+
+        if still_close:
+            # Actively push away from close peers
+            self._repel_from_close_peers(peers, my_state)
+            return
+
         if not still_close:
             # Restore to previous state
             if self._alive_peers == self._expected_peers:
                 self._transition(SwarmState.NOMINAL)
             else:
                 self._transition(SwarmState.DEGRADED)
+
+    def _repel_from_close_peers(self, peers: PeerTable, my_state: DroneState):
+        """Compute and send exponential repulsion velocity away from close peers."""
+        repel_n, repel_e = 0.0, 0.0
+        iso_r = self.isolation_radius
+
+        for peer_id in self._proximity_peers:
+            peer = peers.peers.get(peer_id)
+            if peer is None or (peer.lat == 0.0 and peer.lon == 0.0):
+                continue
+            # Vector from peer to self (repulsion direction)
+            dn = (my_state.lat - peer.lat) * 111320.0
+            de = (my_state.lon - peer.lon) * (111320.0 * cos(radians(my_state.lat)))
+            dist = (dn ** 2 + de ** 2) ** 0.5
+            if dist < 0.1:
+                # Nearly on top — push north by default
+                dn, de, dist = 1.0, 0.0, 1.0
+
+            # Exponential repulsion — strong push
+            strength = min(3.0, 2.0 * math.exp(iso_r / max(dist, 0.3) - 1.0))
+            repel_n += strength * (dn / dist)
+            repel_e += strength * (de / dist)
+
+        # Cap total repulsion speed at 3.0 m/s
+        mag = (repel_n ** 2 + repel_e ** 2) ** 0.5
+        if mag > 3.0:
+            repel_n *= 3.0 / mag
+            repel_e *= 3.0 / mag
+
+        self.conn.send_velocity_ned(repel_n, repel_e, 0.0)
+
+    def get_proximity_alert_data(self, my_state: DroneState) -> dict | None:
+        """Build PROXIMITY_ALERT payload if any peers are inside isolation zone.
+        Called by agent to broadcast alerts."""
+        if not self._proximity_peers:
+            return None
+        return {
+            "alerting_drone": self.drone_id,
+            "close_peers": list(self._proximity_peers),
+            "lat": my_state.lat,
+            "lon": my_state.lon,
+            "isolation_radius": self.isolation_radius,
+            "severity": "CRITICAL" if any(
+                _peer_dist_2d(my_state, peers_obj)
+                < self.isolation_radius * 0.5
+                for peers_obj in []  # Placeholder — checked below
+            ) else "WARNING",
+        }
+
+    def build_proximity_alert(self, peers: PeerTable, my_state: DroneState) -> dict | None:
+        """Build PROXIMITY_ALERT if peers are inside isolation zone."""
+        if not self._proximity_peers:
+            return None
+
+        # Determine severity
+        severity = "WARNING"
+        for peer_id in self._proximity_peers:
+            peer = peers.peers.get(peer_id)
+            if peer is None:
+                continue
+            dist = _haversine_m(my_state.lat, my_state.lon, peer.lat, peer.lon)
+            if dist < self.isolation_radius * 0.5:
+                severity = "CRITICAL"
+                break
+
+        return {
+            "alerting_drone": self.drone_id,
+            "close_peers": list(self._proximity_peers),
+            "lat": my_state.lat,
+            "lon": my_state.lon,
+            "isolation_radius": self.isolation_radius,
+            "severity": severity,
+        }
 
     # ── Main tick ──────────────────────────────────────────
 

@@ -10,7 +10,7 @@ import subprocess
 import threading
 import logging
 
-from config import PROJECT_DIR, LOG_DIR
+from config import PROJECT_DIR, LOG_DIR, DOCKER_MODE
 
 log = logging.getLogger(__name__)
 
@@ -25,7 +25,13 @@ class DroneManager:
         self._lock = threading.Lock()
 
     def launch(self, drone_id: int) -> dict:
-        """Launch SITL + agent for drone_id. Returns status dict."""
+        """Launch SITL + agent for drone_id. Returns status dict.
+        In Docker mode, drones run as separate containers — skip subprocess launch."""
+        if DOCKER_MODE:
+            log.info("Docker mode: drone %d managed by docker-compose (skipping launch)",
+                     drone_id)
+            return {"ok": True, "pid": 0, "docker": True}
+
         with self._lock:
             if drone_id in self._processes:
                 proc = self._processes[drone_id]
@@ -105,6 +111,8 @@ class DroneManager:
 
     def get_status(self, drone_id: int) -> str:
         """Return 'running', 'stopped', or 'unmanaged'."""
+        if DOCKER_MODE:
+            return "docker"
         with self._lock:
             proc = self._processes.get(drone_id)
             if proc is None:
@@ -123,5 +131,8 @@ class DroneManager:
                     if p.poll() is None}
 
     def kill_all(self):
+        if DOCKER_MODE:
+            log.info("Docker mode: drones managed by docker-compose, kill_all is a no-op")
+            return
         for did in list(self._processes.keys()):
             self.kill(did)

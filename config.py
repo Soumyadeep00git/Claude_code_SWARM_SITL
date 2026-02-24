@@ -36,19 +36,61 @@ STATE_REPORT_HZ = 4
 GCS_LOOP_HZ = 10
 
 # ── Failsafe thresholds ───────────────────────────────────
-SAFE_DISTANCE_M = 3.0         # Min distance between any two drones
-SAFE_DISTANCE_CLEAR_M = 4.5   # Hysteresis: clear when > this
+SAFE_DISTANCE_M = 2.5         # Legacy hard failsafe (used as floor)
+SAFE_DISTANCE_CLEAR_M = 4.5   # Legacy hysteresis clear
+ISOLATION_RADIUS_M = 5.0      # Hard no-cross boundary (configurable from UI)
+ISOLATION_SOFT_ZONE_M = 8.0   # Soft repulsion starts here (> isolation)
 COMMS_TIMEOUT_S = 5.0         # Seconds before declaring comms lost
 LOW_BATTERY_PCT = 20
 PEER_STALE_TIMEOUT_S = 5.0           # Seconds before declaring a peer dead
 COMMS_RECOVERY_TIMEOUT_S = 30.0      # Max time to rejoin after comms restored
+
+# ── MPPI Controller ──────────────────────────────────────
+MPPI_CONFIG = {
+    "K_SAMPLES": 256,                   # Rollout samples (power of 2)
+    "HORIZON_STEPS": 15,                # Prediction steps (15 × 0.1s = 1.5s lookahead)
+    "DT_S": 0.1,                        # Time step (matches AGENT_LOOP_HZ)
+    "LAMBDA_TEMP": 5.0,                 # Temperature (lower = more exploitation)
+    "SIGMA_NOISE": [2.0, 2.0, 0.3],    # Noise std [N, E, D] m/s²
+    "MAX_VELOCITY_MS": 3.0,             # Max horizontal speed
+    "MAX_ACCEL_MS2": 2.5,               # Max acceleration
+    "W_FORMATION": 20.0,                # Formation slot tracking — dominant weight
+    "W_COLLISION": 80.0,                # Collision avoidance — must be < formation at spacing distance
+    "W_EFFORT": 0.05,                   # Control effort weight
+    "W_CONNECTIVITY": 3.0,              # Network connectivity weight
+    "W_SMOOTHNESS": 0.8,                # Jerk penalty weight
+    "W_TIME_PRESSURE": 2.0,             # Time urgency weight
+    "W_SPEED_INCENTIVE": 1.5,           # Speed incentive
+    "SAFE_RADIUS_M": 3.0,               # Soft avoidance — MUST be < spacing (5m)
+    "COLLISION_RADIUS_M": 2.0,          # Hard penalty — below failsafe threshold (2.5m)
+    "COMM_RANGE_M": 50.0,               # Connectivity penalty threshold
+}
+
+# ── Hybrid A* Path Planner ───────────────────────────────
+ASTAR_CONFIG = {
+    "GRID_CELL_M": 2.0,                # Grid resolution (matches GPS accuracy)
+    "OBSTACLE_RADIUS_M": 3.0,          # Clearance around peers — must be < spacing (5m)
+    "GRID_EXTENT_M": 80.0,             # Half-width of planning grid
+    "NUM_HEADINGS": 8,                  # Heading discretization
+    "STEP_LENGTH_M": 3.0,              # Distance per A* expansion step
+    "MAX_NODES": 2000,                  # Node budget (caps compute time)
+}
+ASTAR_REPLAN_INTERVAL_S = 1.0          # Replan global path every 1 second
+
+# ── P2P Mesh ──────────────────────────────────────────────
+P2P_ENABLED = True                    # Drones send state directly to peers
+
+# ── Mesh Network Simulation ──────────────────────────────
+MESH_SIM_ENABLED = True               # Use SimulatedUDPNode with network effects
+MESH_SIM_RANGE_M = 100.0             # Simulated radio range (meters)
+MESH_SIM_BANDWIDTH_BPS = 250_000     # 250 kbps simulated radio
 
 # ── Formation defaults ─────────────────────────────────────
 DEFAULT_SPACING_M = 5.0
 DEFAULT_FORMATION = "LINE"
 
 # ── ArduPilot paths ────────────────────────────────────────
-ARDUPILOT_DIR = os.path.expanduser("~/ardupilot")
+ARDUPILOT_DIR = os.environ.get("ARDUPILOT_DIR", os.path.expanduser("~/ardupilot"))
 
 # ── Project paths ──────────────────────────────────────────
 PROJECT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -56,3 +98,8 @@ LOG_DIR = os.path.join(PROJECT_DIR, "logs")
 
 # ── Process monitor ──────────────────────────────────
 MONITOR_SAMPLE_HZ = 2  # Samples per second for CPU/memory monitoring
+
+# ── Docker mode ──────────────────────────────────────
+# Auto-detect: if running inside a container, drones are managed by
+# docker-compose (separate containers), not by DroneManager subprocesses.
+DOCKER_MODE = os.path.exists("/.dockerenv")

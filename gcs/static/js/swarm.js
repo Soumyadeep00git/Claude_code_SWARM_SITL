@@ -1,41 +1,274 @@
-// Swarm SITL — Web GCS JavaScript
-// Canvas visualization, status table, command handlers, drone management
+// Swarm SITL — Web GCS (Leaflet + floating overlays)
 
 // ── Constants ──────────────────────────────────────────
 const COLORS = ["#e41a1c", "#377eb8", "#4daf4a", "#984ea3", "#ff7f00",
                 "#a65628", "#f781bf", "#999999", "#66c2a5", "#fc8d62"];
-const METERS_PER_DEG = 111320.0;
-const LON_SCALE = 0.8;  // cos(latitude) approx for Canberra
-const VIEW_RANGE = 50;  // +/- 50m
+const HOME_LAT = -35.3632620;
+const HOME_LON = 149.1652370;
+const TRAIL_LENGTH = 50;
+const AUTO_CENTER_INTERVAL = 3000;
 
 // ── State ──────────────────────────────────────────────
-let refLat = null;
-let refLon = null;
 let latestState = null;
 let processStatus = {};
 let knownDrones = [];
+let autoCenter = true;
+let showTrails = true;
+let mapInitialized = false;
+let lastCenterTime = 0;
 
-// ── DOM references ─────────────────────────────────────
-const canvas = document.getElementById("swarm-canvas");
-const ctx = canvas.getContext("2d");
+let map;
+let droneMarkers = {};
+let droneIconCache = {};
+let droneTrails = {};
+let waypointMarker = null;
+
+// Isolation zone visualization
+let showIsolationZones = false;
+let isolationCircles = {};
+let currentIsolationRadius = 5.0;
+
+// Proximity alert flash state
+let proxAlertFlash = {};  // drone_id -> expiry timestamp
+
+// ── DOM ────────────────────────────────────────────────
 const statusBody = document.getElementById("status-body");
 const logScroll = document.getElementById("log-scroll");
 const connStatus = document.getElementById("conn-status");
 const elapsedSpan = document.getElementById("elapsed");
 
+// ── Map ────────────────────────────────────────────────
+
+function initMap() {
+    const tileDark = L.tileLayer(
+        "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png",
+        { attribution: "&copy; CartoDB", subdomains: "abcd", maxZoom: 20 }
+    );
+    const tileSat = L.tileLayer(
+        "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+        { attribution: "&copy; Esri", maxZoom: 19 }
+    );
+
+    map = L.map("map", {
+        center: [HOME_LAT, HOME_LON],
+        zoom: 18,
+        layers: [tileDark],
+        zoomControl: false,
+    });
+
+    L.control.zoom({ position: "topright" }).addTo(map);
+    L.control.layers({ "Dark": tileDark, "Satellite": tileSat }, null, { position: "topright" }).addTo(map);
+
+    map.on("dragstart", () => {
+        autoCenter = false;
+        document.getElementById("btn-auto-center").classList.remove("active");
+    });
+    map.on("click", onMapClick);
+}
+
+// ── Drone Icon ─────────────────────────────────────────
+
+function createDroneIcon(id, heading, isLeader, state, isStale, isBlocked, color, alt, fs) {
+    const S = 48, H = S / 2;
+    const rad = (heading || 0) * Math.PI / 180;
+    const lx = H + Math.sin(rad) * 20;
+    const ly = H - Math.cos(rad) * 20;
+
+    const isProxAlert = proxAlertFlash[id] && proxAlertFlash[id] > Date.now();
+
+    let extra = "";
+    if (isProxAlert) extra += `<circle cx="${H}" cy="${H}" r="20" fill="none" stroke="#ef4444" stroke-width="3" opacity=".9" class="prox-pulse"/>`;
+    if (state && state !== "NOMINAL") {
+        const c = (state === "COMMS_LOST" || state.startsWith("EMERGENCY")) ? "#ef4444" : "#f59e0b";
+        extra += `<circle cx="${H}" cy="${H}" r="16" fill="none" stroke="${c}" stroke-width="2.5" opacity=".8"/>`;
+    }
+    if (isBlocked) extra += `<circle cx="${H}" cy="${H}" r="18" fill="none" stroke="#ff6b6b" stroke-width="2" stroke-dasharray="4,4" opacity=".7"/>`;
+    if (isStale) extra += `<line x1="${H-8}" y1="${H-8}" x2="${H+8}" y2="${H+8}" stroke="#ef4444" stroke-width="3"/><line x1="${H+8}" y1="${H-8}" x2="${H-8}" y2="${H+8}" stroke="#ef4444" stroke-width="3"/>`;
+    if (isLeader) extra += `<text x="${H}" y="${H-18}" text-anchor="middle" fill="#fbbf24" font-size="14" font-weight="bold">\u2605</text>`;
+    if (fs && (!state || state === "NOMINAL")) extra += `<text x="${H}" y="${H+30}" text-anchor="middle" fill="#ef4444" font-size="8" font-weight="bold">FS!</text>`;
+
+    const op = isStale ? 0.3 : 1.0;
+    const svg = `<svg width="${S}" height="${S}" xmlns="http://www.w3.org/2000/svg" style="opacity:${op};filter:drop-shadow(0 2px 4px rgba(0,0,0,.6))">
+        ${extra}
+        <circle cx="${H}" cy="${H}" r="10" fill="${color}" stroke="rgba(255,255,255,.45)" stroke-width="1.5"/>
+        <line x1="${H}" y1="${H}" x2="${lx}" y2="${ly}" stroke="${color}" stroke-width="2.5" stroke-linecap="round"/>
+    </svg>`;
+
+    const altTxt = alt !== undefined ? ` ${alt.toFixed(1)}m` : "";
+    return L.divIcon({
+        html: `<div class="drone-marker-wrapper">${svg}<span class="drone-label" style="color:${color}">D${id}${altTxt}</span></div>`,
+        className: "drone-marker",
+        iconSize: [S, S],
+        iconAnchor: [H, H],
+    });
+}
+
+// ── Trails ─────────────────────────────────────────────
+
+function updateTrail(id, lat, lon, color) {
+    if (!droneTrails[id]) {
+        droneTrails[id] = {
+            pts: [],
+            line: L.polyline([], { color, weight: 2, opacity: 0.35, smoothFactor: 1 }).addTo(map),
+        };
+    }
+    const t = droneTrails[id];
+    t.pts.push([lat, lon]);
+    if (t.pts.length > TRAIL_LENGTH) t.pts.shift();
+    t.line.setLatLngs(t.pts);
+}
+
+function clearTrails() {
+    Object.values(droneTrails).forEach(t => map.removeLayer(t.line));
+    droneTrails = {};
+}
+
+// ── Map Update ─────────────────────────────────────────
+
+function updateMap(data) {
+    const drones = data.drones;
+    const staleSet = new Set(data.stale);
+    const blockedSet = new Set(data.blocked);
+
+    let leaderId = 1;
+    for (const [, s] of Object.entries(drones)) { if (s.leader_id) { leaderId = s.leader_id; break; } }
+
+    const bounds = [];
+    let count = 0, altSum = 0;
+
+    for (const [id, s] of Object.entries(drones)) {
+        const nid = parseInt(id);
+        if (s.lat === 0 && s.lon === 0) continue;
+        const ll = [s.lat, s.lon];
+        const color = COLORS[(nid - 1) % COLORS.length];
+        const stale = staleSet.has(nid), blocked = blockedSet.has(nid);
+        const leader = nid === leaderId;
+        const st = (s.swarm_state || "NOMINAL").toUpperCase();
+
+        // Icon caching
+        const hb = Math.round((s.heading || 0) / 5) * 5;
+        const pa = proxAlertFlash[nid] && proxAlertFlash[nid] > Date.now() ? 1 : 0;
+        const key = `${nid}_${hb}_${leader}_${st}_${stale}_${blocked}_${(s.alt||0).toFixed(0)}_${s.failsafe_active}_${pa}`;
+
+        if (droneMarkers[nid]) {
+            droneMarkers[nid].setLatLng(ll);
+            if (droneIconCache[nid] !== key) {
+                droneMarkers[nid].setIcon(createDroneIcon(nid, s.heading || 0, leader, st, stale, blocked, color, s.alt, s.failsafe_active));
+                droneIconCache[nid] = key;
+            }
+        } else {
+            droneMarkers[nid] = L.marker(ll, {
+                icon: createDroneIcon(nid, s.heading || 0, leader, st, stale, blocked, color, s.alt, s.failsafe_active),
+                zIndexOffset: 1000,
+            }).addTo(map);
+            droneIconCache[nid] = key;
+            droneMarkers[nid].bindTooltip("", { permanent: false, direction: "top", offset: [0, -24], className: "drone-tooltip" });
+        }
+
+        let tip = `D${id} | ${s.mode || "?"} | ${(s.alt || 0).toFixed(1)}m`;
+        if (st !== "NOMINAL") tip += ` | ${st}`;
+        if (s.battery_pct >= 0) tip += ` | ${s.battery_pct}%`;
+        droneMarkers[nid].setTooltipContent(tip);
+
+        if (showTrails && !stale) updateTrail(nid, s.lat, s.lon, color);
+
+        bounds.push(ll);
+        count++;
+        if (s.alt > 0) altSum += s.alt;
+    }
+
+    // Isolation zones
+    if (showIsolationZones) updateIsolationZones(data);
+
+    // HUD stats
+    document.getElementById("drone-count").textContent = `${count}/${MAX_DRONES}`;
+    document.getElementById("avg-alt").textContent = count > 0 ? `${(altSum / count).toFixed(1)}m` : "0.0m";
+
+    // Auto-center (throttled, only when drones leave view)
+    if (autoCenter && bounds.length > 0) {
+        const now = Date.now();
+        if (!mapInitialized) {
+            map.setView(bounds[0], 18);
+            mapInitialized = true;
+            lastCenterTime = now;
+        } else if (now - lastCenterTime > AUTO_CENTER_INTERVAL) {
+            lastCenterTime = now;
+            if (bounds.length > 1) {
+                const b = L.latLngBounds(bounds).pad(0.3);
+                if (!map.getBounds().contains(b)) map.fitBounds(b, { animate: true, duration: 0.8, maxZoom: 19 });
+            } else {
+                if (!map.getBounds().pad(-0.3).contains(bounds[0])) map.panTo(bounds[0], { animate: true, duration: 0.8 });
+            }
+        }
+    }
+}
+
+// ── Isolation Zones ───────────────────────────────────
+
+function updateIsolationZones(data) {
+    if (!showIsolationZones) return;
+    const drones = data.drones;
+    const now = Date.now();
+
+    for (const [id, s] of Object.entries(drones)) {
+        const nid = parseInt(id);
+        if (s.lat === 0 && s.lon === 0) continue;
+
+        const isFlashing = proxAlertFlash[nid] && proxAlertFlash[nid] > now;
+        const color = isFlashing ? "#ef4444" : "rgba(239, 68, 68, 0.3)";
+        const fillColor = isFlashing ? "rgba(239, 68, 68, 0.15)" : "rgba(239, 68, 68, 0.05)";
+        const weight = isFlashing ? 2.5 : 1.5;
+
+        if (isolationCircles[nid]) {
+            isolationCircles[nid].setLatLng([s.lat, s.lon]);
+            isolationCircles[nid].setRadius(currentIsolationRadius);
+            isolationCircles[nid].setStyle({ color, fillColor, weight });
+        } else {
+            isolationCircles[nid] = L.circle([s.lat, s.lon], {
+                radius: currentIsolationRadius,
+                color,
+                fillColor,
+                fillOpacity: 1,
+                weight,
+                dashArray: "6,4",
+            }).addTo(map);
+        }
+    }
+}
+
+function clearIsolationZones() {
+    Object.values(isolationCircles).forEach(c => map.removeLayer(c));
+    isolationCircles = {};
+}
+
+// ── Click-to-waypoint ──────────────────────────────────
+
+function onMapClick(e) {
+    document.getElementById("wp-lat").value = e.latlng.lat.toFixed(7);
+    document.getElementById("wp-lon").value = e.latlng.lng.toFixed(7);
+    document.getElementById("swarm-wp-lat").value = e.latlng.lat.toFixed(7);
+    document.getElementById("swarm-wp-lon").value = e.latlng.lng.toFixed(7);
+    if (waypointMarker) map.removeLayer(waypointMarker);
+    waypointMarker = L.circleMarker([e.latlng.lat, e.latlng.lng], {
+        radius: 8, color: "#fff", fillColor: "#60a5fa", fillOpacity: 0.8, weight: 2,
+    }).addTo(map).bindTooltip("Waypoint", { permanent: true, direction: "top", className: "wp-tooltip" });
+    setTimeout(() => { if (waypointMarker) { map.removeLayer(waypointMarker); waypointMarker = null; } }, 10000);
+}
+
 // ── Socket.IO ──────────────────────────────────────────
+
 const socket = io();
 
 socket.on("connect", () => {
-    connStatus.textContent = "Connected";
-    connStatus.className = "connected";
-    addLog("INFO", "Connected to Web GCS");
+    connStatus.innerHTML = '<span class="conn-dot"></span> Connected';
+    connStatus.className = "conn-badge connected";
+    addLog("INFO", "Connected to GCS");
 });
 
 socket.on("disconnect", () => {
-    connStatus.textContent = "Disconnected";
-    connStatus.className = "disconnected";
-    addLog("WARN", "Disconnected from Web GCS");
+    connStatus.innerHTML = '<span class="conn-dot"></span> Disconnected';
+    connStatus.className = "conn-badge disconnected";
+    addLog("WARN", "Disconnected from GCS");
 });
 
 socket.on("state_update", (data) => {
@@ -46,515 +279,384 @@ socket.on("state_update", (data) => {
     updateStatusTable(data);
     renderDroneGrid();
     updateDroneSelects();
-    drawCanvas(data);
+    updateMap(data);
 });
 
-socket.on("alert", (data) => {
-    addLog("ALERT",
-        `D${data.drone_id} [${data.code}] ${data.message} -> ${data.action_taken}`);
-});
+socket.on("alert", (d) => addLog("ALERT", `D${d.drone_id} [${d.code}] ${d.message} -> ${d.action_taken}`));
+socket.on("log_event", (d) => addLog(d.level, d.message));
+socket.on("drone_launched", (d) => addLog("INFO", `Drone ${d.drone_id} launched (PID ${d.pid})`));
+socket.on("drone_killed", (d) => addLog("WARN", `Drone ${d.drone_id} killed`));
 
-socket.on("log_event", (data) => {
-    addLog(data.level, data.message);
-});
-
-socket.on("drone_launched", (data) => {
-    addLog("INFO", `Drone ${data.drone_id} launched (PID ${data.pid})`);
-});
-
-socket.on("drone_killed", (data) => {
-    addLog("WARN", `Drone ${data.drone_id} killed`);
-});
-
-// ── Canvas ─────────────────────────────────────────────
-
-function gpsToLocal(lat, lon) {
-    if (refLat === null) return null;
-    return {
-        north: (lat - refLat) * METERS_PER_DEG,
-        east: (lon - refLon) * METERS_PER_DEG * LON_SCALE,
-    };
-}
-
-function metersToCanvas(north, east) {
-    const cx = canvas.width / 2;
-    const cy = canvas.height / 2;
-    const scale = canvas.width / (VIEW_RANGE * 2);
-    return {
-        x: cx + east * scale,
-        y: cy - north * scale,
-    };
-}
-
-function canvasToMeters(cx, cy) {
-    const scale = canvas.width / (VIEW_RANGE * 2);
-    return {
-        east: (cx - canvas.width / 2) / scale,
-        north: -(cy - canvas.height / 2) / scale,
-    };
-}
-
-function drawCanvas(data) {
-    const drones = data.drones;
-    const staleSet = new Set(data.stale);
-    const blockedSet = new Set(data.blocked);
-
-    // Background
-    ctx.fillStyle = "#1a1a2e";
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-    // Grid
-    ctx.strokeStyle = "rgba(255,255,255,0.07)";
-    ctx.lineWidth = 1;
-    for (let m = -VIEW_RANGE; m <= VIEW_RANGE; m += 10) {
-        const p = metersToCanvas(m, -VIEW_RANGE);
-        const q = metersToCanvas(m, VIEW_RANGE);
-        ctx.beginPath(); ctx.moveTo(p.x, p.y); ctx.lineTo(q.x, q.y); ctx.stroke();
-        const r = metersToCanvas(-VIEW_RANGE, m);
-        const s = metersToCanvas(VIEW_RANGE, m);
-        ctx.beginPath(); ctx.moveTo(r.x, r.y); ctx.lineTo(s.x, s.y); ctx.stroke();
+socket.on("proximity_alert", (d) => {
+    const sev = d.severity || "WARNING";
+    const peers = (d.close_peers || []).map(p => "D" + p).join(", ");
+    addLog("ALERT", `PROXIMITY D${d.alerting_drone} [${sev}] near ${peers} (iso=${d.isolation_radius}m)`);
+    // Flash the alerting drone and close peers on map
+    const now = Date.now();
+    const flashDuration = sev === "CRITICAL" ? 4000 : 2000;
+    proxAlertFlash[d.alerting_drone] = now + flashDuration;
+    for (const pid of (d.close_peers || [])) {
+        proxAlertFlash[pid] = now + flashDuration;
     }
-
-    // Axis tick labels
-    ctx.fillStyle = "rgba(255,255,255,0.25)";
-    ctx.font = "9px monospace";
-    for (let m = -40; m <= 40; m += 20) {
-        if (m === 0) continue;
-        const p = metersToCanvas(0, m);
-        ctx.fillText(m + "", p.x - 6, canvas.height / 2 + 12);
-        const q = metersToCanvas(m, 0);
-        ctx.fillText(m + "", canvas.width / 2 + 4, q.y + 3);
-    }
-
-    // Axis labels
-    ctx.fillStyle = "rgba(255,255,255,0.35)";
-    ctx.font = "11px monospace";
-    ctx.fillText("East (m)", canvas.width - 65, canvas.height / 2 + 25);
-    ctx.save();
-    ctx.translate(12, canvas.height / 2 - 20);
-    ctx.rotate(-Math.PI / 2);
-    ctx.fillText("North (m)", 0, 0);
-    ctx.restore();
-
-    // Origin crosshair
-    const o = metersToCanvas(0, 0);
-    ctx.strokeStyle = "rgba(255,255,255,0.15)";
-    ctx.lineWidth = 1;
-    ctx.beginPath(); ctx.moveTo(o.x - 8, o.y); ctx.lineTo(o.x + 8, o.y); ctx.stroke();
-    ctx.beginPath(); ctx.moveTo(o.x, o.y - 8); ctx.lineTo(o.x, o.y + 8); ctx.stroke();
-
-    // Set reference from first valid drone
-    let alts = [];
-    let droneCount = 0;
-    for (const [id, s] of Object.entries(drones)) {
-        if ((s.lat !== 0 || s.lon !== 0) && refLat === null) {
-            refLat = s.lat;
-            refLon = s.lon;
-        }
-    }
-
-    // Determine leader from first drone's leader_id
-    let leaderId = 1;
-    for (const [id, s] of Object.entries(drones)) {
-        if (s.leader_id) { leaderId = s.leader_id; break; }
-    }
-
-    // Draw drones
-    for (const [id, s] of Object.entries(drones)) {
-        if (s.lat === 0 && s.lon === 0) continue;
-        const local = gpsToLocal(s.lat, s.lon);
-        if (!local) continue;
-        const pos = metersToCanvas(local.north, local.east);
-        const color = COLORS[(parseInt(id) - 1) % COLORS.length];
-        const isStale = staleSet.has(parseInt(id));
-        const isBlocked = blockedSet.has(parseInt(id));
-        const swarmState = (s.swarm_state || "NOMINAL").toUpperCase();
-
-        ctx.globalAlpha = isStale ? 0.25 : 1.0;
-
-        // State ring for non-NOMINAL drones
-        if (swarmState !== "NOMINAL") {
-            let ringColor = "#ff7f00";
-            if (swarmState === "COMMS_LOST" || swarmState.startsWith("EMERGENCY")) {
-                ringColor = "#e41a1c";
-            }
-            ctx.beginPath();
-            ctx.arc(pos.x, pos.y, 15, 0, Math.PI * 2);
-            ctx.strokeStyle = ringColor;
-            ctx.lineWidth = 2.5;
-            ctx.stroke();
-        }
-
-        // Drone circle
-        ctx.beginPath();
-        ctx.arc(pos.x, pos.y, 10, 0, Math.PI * 2);
-        ctx.fillStyle = color;
-        ctx.fill();
-        ctx.strokeStyle = "rgba(255,255,255,0.3)";
-        ctx.lineWidth = 1;
-        ctx.stroke();
-
-        // Heading indicator
-        const hdgRad = ((s.heading || 0) - 0) * Math.PI / 180;
-        ctx.beginPath();
-        ctx.moveTo(pos.x, pos.y);
-        ctx.lineTo(pos.x + Math.sin(hdgRad) * 18, pos.y - Math.cos(hdgRad) * 18);
-        ctx.strokeStyle = color;
-        ctx.lineWidth = 2.5;
-        ctx.stroke();
-
-        // Leader indicator: gold star above leader
-        if (parseInt(id) === leaderId) {
-            ctx.fillStyle = "#ffd700";
-            ctx.font = "bold 14px monospace";
-            ctx.fillText("\u2605", pos.x - 5, pos.y - 16);
-        }
-
-        // Label
-        ctx.fillStyle = color;
-        ctx.font = "bold 11px monospace";
-        ctx.fillText(`D${id} ${(s.alt || 0).toFixed(1)}m`, pos.x + 14, pos.y - 4);
-
-        // State label for non-NOMINAL
-        if (swarmState !== "NOMINAL") {
-            const sc = swarmState === "DEGRADED" ? "#ff7f00" : "#e41a1c";
-            ctx.fillStyle = sc;
-            ctx.font = "bold 9px monospace";
-            ctx.fillText(`[${swarmState}]`, pos.x + 14, pos.y + 10);
-        } else if (s.failsafe_active) {
-            ctx.fillStyle = "#ff4444";
-            ctx.font = "bold 10px monospace";
-            ctx.fillText("[FS!]", pos.x + 14, pos.y + 10);
-        }
-
-        // Blocked indicator (dashed red ring)
-        if (isBlocked) {
-            ctx.save();
-            ctx.setLineDash([4, 4]);
-            ctx.strokeStyle = "#ff4444";
-            ctx.lineWidth = 2;
-            ctx.beginPath();
-            ctx.arc(pos.x, pos.y, 16, 0, Math.PI * 2);
-            ctx.stroke();
-            ctx.restore();
-        }
-
-        // Dead/stale marker: X over last position
-        if (isStale) {
-            ctx.strokeStyle = "#e41a1c";
-            ctx.lineWidth = 3;
-            ctx.beginPath();
-            ctx.moveTo(pos.x - 8, pos.y - 8); ctx.lineTo(pos.x + 8, pos.y + 8);
-            ctx.moveTo(pos.x + 8, pos.y - 8); ctx.lineTo(pos.x - 8, pos.y + 8);
-            ctx.stroke();
-            ctx.fillStyle = "rgba(255,255,255,0.4)";
-            ctx.font = "9px monospace";
-            ctx.fillText("[STALE]", pos.x + 14, pos.y + 20);
-        }
-
-        ctx.globalAlpha = 1.0;
-        if (s.alt > 0) alts.push(s.alt);
-        droneCount++;
-    }
-
-    // Title
-    const avgAlt = alts.length ? (alts.reduce((a,b) => a+b, 0) / alts.length) : 0;
-    ctx.fillStyle = "rgba(255,255,255,0.7)";
-    ctx.font = "13px monospace";
-    ctx.fillText(
-        `Swarm SITL - ${droneCount} drones - avg alt ${avgAlt.toFixed(1)}m`,
-        10, 20
-    );
-}
-
-// ── Canvas click-to-waypoint ───────────────────────────
-
-canvas.addEventListener("click", (e) => {
-    if (refLat === null) return;
-    const rect = canvas.getBoundingClientRect();
-    const cx = e.clientX - rect.left;
-    const cy = e.clientY - rect.top;
-    const m = canvasToMeters(cx, cy);
-
-    // Convert meters back to GPS
-    const lat = refLat + m.north / METERS_PER_DEG;
-    const lon = refLon + m.east / (METERS_PER_DEG * LON_SCALE);
-
-    document.getElementById("wp-lat").value = lat.toFixed(7);
-    document.getElementById("wp-lon").value = lon.toFixed(7);
 });
 
-// ── Drone Management Grid ─────────────────────────────
+// ── Drone Management Grid ──────────────────────────────
 
 function renderDroneGrid() {
     const grid = document.getElementById("drone-mgmt-grid");
-    // Only rebuild if drone count changed
     if (grid.dataset.count === String(MAX_DRONES)) {
-        // Just update status dots and button states
         for (let i = 1; i <= MAX_DRONES; i++) {
             const dot = document.getElementById(`mgmt-dot-${i}`);
-            const status = processStatus[i] || "unmanaged";
-            if (dot) {
-                dot.className = `status-dot status-${status}`;
-                dot.title = status;
-            }
-            const btnLaunch = document.getElementById(`mgmt-launch-${i}`);
-            const btnKill = document.getElementById(`mgmt-kill-${i}`);
-            const btnTakeoff = document.getElementById(`mgmt-takeoff-${i}`);
-            const btnLand = document.getElementById(`mgmt-land-${i}`);
-            if (btnLaunch) btnLaunch.disabled = (status === "running");
-            if (btnKill) btnKill.disabled = (status !== "running");
-            // Takeoff/land need the drone to be reporting
-            const hasState = latestState && latestState.drones && latestState.drones[String(i)];
-            if (btnTakeoff) btnTakeoff.disabled = !hasState;
-            if (btnLand) btnLand.disabled = !hasState;
+            const st = processStatus[i] || "unmanaged";
+            if (dot) { dot.className = `status-dot status-${st}`; dot.title = st; }
+            const bL = document.getElementById(`mgmt-launch-${i}`);
+            const bK = document.getElementById(`mgmt-kill-${i}`);
+            const bT = document.getElementById(`mgmt-takeoff-${i}`);
+            const bD = document.getElementById(`mgmt-land-${i}`);
+            if (bL) bL.disabled = st === "running";
+            if (bK) bK.disabled = st !== "running";
+            const has = latestState && latestState.drones && latestState.drones[String(i)];
+            if (bT) bT.disabled = !has;
+            if (bD) bD.disabled = !has;
         }
         return;
     }
-
-    // Build grid
     grid.innerHTML = "";
     grid.dataset.count = String(MAX_DRONES);
     for (let i = 1; i <= MAX_DRONES; i++) {
-        const status = processStatus[i] || "unmanaged";
+        const st = processStatus[i] || "unmanaged";
+        const c = COLORS[(i - 1) % COLORS.length];
         const row = document.createElement("div");
         row.className = "drone-mgmt-row";
-        row.id = `mgmt-row-${i}`;
         row.innerHTML = `
-            <span class="status-dot status-${status}" id="mgmt-dot-${i}" title="${status}"></span>
-            <span style="color:${COLORS[(i-1) % COLORS.length]}; font-weight:bold; width:28px">D${i}</span>
-            <button class="btn-launch btn-sm" id="mgmt-launch-${i}" ${status === "running" ? "disabled" : ""}>Launch</button>
-            <button class="btn-kill btn-sm" id="mgmt-kill-${i}" ${status !== "running" ? "disabled" : ""}>Kill</button>
-            <button class="btn-sm" id="mgmt-takeoff-${i}" disabled>Takeoff</button>
-            <button class="btn-land-single btn-sm" id="mgmt-land-${i}" disabled>Land</button>
-        `;
+            <span class="status-dot status-${st}" id="mgmt-dot-${i}" title="${st}"></span>
+            <span style="color:${c};font-weight:600;width:26px;font-family:var(--font-mono);font-size:11px">D${i}</span>
+            <button class="btn btn-success btn-sm" id="mgmt-launch-${i}" ${st==="running"?"disabled":""}>Launch</button>
+            <button class="btn btn-danger btn-sm" id="mgmt-kill-${i}" ${st!=="running"?"disabled":""}>Kill</button>
+            <button class="btn btn-primary btn-sm" id="mgmt-takeoff-${i}" disabled>Up</button>
+            <button class="btn btn-sm" id="mgmt-land-${i}" disabled>Land</button>`;
         grid.appendChild(row);
-
-        // Bind events
-        document.getElementById(`mgmt-launch-${i}`).addEventListener("click", () => {
-            socket.emit("cmd_launch_drone", { drone_id: i });
-        });
-        document.getElementById(`mgmt-kill-${i}`).addEventListener("click", () => {
-            if (!confirm(`Kill drone ${i}?`)) return;
-            socket.emit("cmd_kill_drone", { drone_id: i });
-        });
-        document.getElementById(`mgmt-takeoff-${i}`).addEventListener("click", () => {
-            const alt = parseFloat(document.getElementById("takeoff-alt").value) || 10;
-            socket.emit("cmd_takeoff_drone", { drone_id: i, alt: alt });
-        });
-        document.getElementById(`mgmt-land-${i}`).addEventListener("click", () => {
-            socket.emit("cmd_land_drone", { drone_id: i });
-        });
+        document.getElementById(`mgmt-launch-${i}`).onclick = () => socket.emit("cmd_launch_drone", { drone_id: i });
+        document.getElementById(`mgmt-kill-${i}`).onclick = () => { if (confirm(`Kill drone ${i}?`)) socket.emit("cmd_kill_drone", { drone_id: i }); };
+        document.getElementById(`mgmt-takeoff-${i}`).onclick = () => socket.emit("cmd_takeoff_drone", { drone_id: i, alt: parseFloat(document.getElementById("takeoff-alt").value) || 10 });
+        document.getElementById(`mgmt-land-${i}`).onclick = () => socket.emit("cmd_land_drone", { drone_id: i });
     }
 }
 
-// ── Dynamic drone selects ─────────────────────────────
+// ── Selects ────────────────────────────────────────────
 
 function updateDroneSelects() {
-    updateSelectOptions("drone-select");
-    updateSelectOptions("ned-drone-select");
-}
-
-function updateSelectOptions(selectId) {
-    const sel = document.getElementById(selectId);
-    if (!sel) return;
-    const current = sel.value;
-
-    // Build list: all drones 1..MAX, mark known ones
-    const needed = [];
-    for (let i = 1; i <= MAX_DRONES; i++) {
-        needed.push(i);
-    }
-
-    // Only rebuild if options count changed
-    if (sel.options.length === needed.length) return;
-
-    sel.innerHTML = "";
-    for (const id of needed) {
-        const opt = document.createElement("option");
-        opt.value = id;
-        opt.textContent = `Drone ${id}`;
-        sel.appendChild(opt);
-    }
-    if (current) sel.value = current;
+    ["drone-select", "ned-drone-select"].forEach(id => {
+        const sel = document.getElementById(id);
+        if (!sel || sel.options.length === MAX_DRONES) return;
+        const cur = sel.value;
+        sel.innerHTML = "";
+        for (let i = 1; i <= MAX_DRONES; i++) {
+            const o = document.createElement("option");
+            o.value = i; o.textContent = `D${i}`;
+            sel.appendChild(o);
+        }
+        if (cur) sel.value = cur;
+    });
 }
 
 // ── Status Table ───────────────────────────────────────
 
-function stateClass(swarmState) {
-    if (!swarmState) return "state-nominal";
-    const s = swarmState.toUpperCase();
-    if (s === "NOMINAL") return "state-nominal";
-    if (s === "DEGRADED") return "state-degraded";
-    if (s === "COMMS_LOST") return "state-comms-lost";
-    if (s === "COMMS_RECOVERY") return "state-comms-recovery";
-    if (s === "LANDED") return "state-landed";
+function stateClass(s) {
+    if (!s) return "state-nominal";
+    const u = s.toUpperCase();
+    if (u === "NOMINAL") return "state-nominal";
+    if (u === "DEGRADED") return "state-degraded";
+    if (u === "COMMS_LOST") return "state-comms-lost";
+    if (u === "COMMS_RECOVERY") return "state-comms-recovery";
+    if (u === "LANDED") return "state-landed";
     return "state-emergency";
 }
 
 function updateStatusTable(data) {
     statusBody.innerHTML = "";
-    const entries = Object.entries(data.drones).sort((a,b) => parseInt(a[0]) - parseInt(b[0]));
+    const entries = Object.entries(data.drones).sort((a, b) => parseInt(a[0]) - parseInt(b[0]));
     for (const [id, s] of entries) {
-        const isBlocked = data.blocked.includes(parseInt(id));
+        const blocked = data.blocked.includes(parseInt(id));
         const tr = document.createElement("tr");
         if (s.failsafe_active) tr.className = "failsafe-row";
-        if (isBlocked) tr.className += " blocked-row";
-        const sc = stateClass(s.swarm_state);
-        const leaderId = s.leader_id || 1;
-        const isLeader = parseInt(id) === leaderId;
+        if (blocked) tr.className += " blocked-row";
+        const lid = s.leader_id || 1;
+        const c = COLORS[(parseInt(id) - 1) % COLORS.length];
         tr.innerHTML = `
-            <td style="color:${COLORS[(parseInt(id)-1) % COLORS.length]}; font-weight:bold">D${id}</td>
+            <td style="color:${c};font-weight:600">D${id}</td>
             <td>${s.mode || "?"}</td>
             <td>${(s.alt || 0).toFixed(1)}</td>
             <td>${s.battery_pct >= 0 ? s.battery_pct + "%" : "?"}</td>
             <td>${s.armed ? "YES" : "-"}</td>
-            <td style="color:${s.failsafe_active ? '#e41a1c' : '#333'}">${s.failsafe_active ? "ACTIVE" : "-"}</td>
-            <td class="${sc}">${s.swarm_state || "NOMINAL"}</td>
-            <td>${isLeader ? "&#9733;" : ""} D${leaderId}</td>
-            <td>${s.alive_count || 0}</td>
-        `;
+            <td style="color:${s.failsafe_active ? "var(--red)" : "var(--text-muted)"}">${s.failsafe_active ? "FS" : "-"}</td>
+            <td class="${stateClass(s.swarm_state)}">${s.swarm_state || "NOMINAL"}</td>
+            <td>${parseInt(id) === lid ? "\u2605" : ""} D${lid}</td>
+            <td>${s.alive_count || 0}</td>`;
         statusBody.appendChild(tr);
     }
 }
 
-// ── Elapsed Time ───────────────────────────────────────
+// ── Elapsed ────────────────────────────────────────────
 
-function updateElapsed(seconds) {
-    const min = Math.floor(seconds / 60);
-    const sec = Math.floor(seconds % 60);
-    elapsedSpan.textContent =
-        `${String(min).padStart(2,"0")}:${String(sec).padStart(2,"0")}`;
+function updateElapsed(sec) {
+    const m = Math.floor(sec / 60), s = Math.floor(sec % 60);
+    elapsedSpan.textContent = `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
 }
 
-// ── Event Log ──────────────────────────────────────────
+// ── Log ────────────────────────────────────────────────
 
-function addLog(level, message) {
-    const entry = document.createElement("div");
-    entry.className = `log-entry log-${level.toLowerCase()}`;
-    const now = new Date().toLocaleTimeString();
-    entry.textContent = `[${now}] [${level}] ${message}`;
-    logScroll.appendChild(entry);
-    if (logScroll.children.length > 200) {
-        logScroll.removeChild(logScroll.firstChild);
-    }
+function addLog(level, msg) {
+    const e = document.createElement("div");
+    e.className = `log-entry log-${level.toLowerCase()}`;
+    e.textContent = `[${new Date().toLocaleTimeString()}] [${level}] ${msg}`;
+    logScroll.appendChild(e);
+    if (logScroll.children.length > 200) logScroll.removeChild(logScroll.firstChild);
     logScroll.scrollTop = logScroll.scrollHeight;
+}
+
+// ── Panel Collapse ─────────────────────────────────────
+
+function togglePanel(hdr) {
+    const body = hdr.nextElementSibling;
+    const chev = hdr.querySelector(".panel-chevron");
+    body.classList.toggle("collapsed");
+    chev.style.transform = body.classList.contains("collapsed") ? "rotate(-90deg)" : "";
+}
+
+// ── Failure Injection ──────────────────────────────────
+
+function blockComms(id) {
+    socket.emit("cmd_block_comms", { drone_id: id });
+    const r = document.getElementById(`fail-${id}`);
+    if (r) { r.querySelector(".btn-warning").disabled = true; r.querySelector(".btn-success").disabled = false; }
+}
+
+function restoreComms(id) {
+    socket.emit("cmd_restore_comms", { drone_id: id });
+    const r = document.getElementById(`fail-${id}`);
+    if (r) { r.querySelector(".btn-warning").disabled = false; r.querySelector(".btn-success").disabled = true; }
 }
 
 // ── Button Handlers ────────────────────────────────────
 
-// Global commands
-document.getElementById("btn-takeoff").addEventListener("click", () => {
-    const alt = parseFloat(document.getElementById("takeoff-alt").value);
-    socket.emit("cmd_takeoff", { alt: alt });
+document.getElementById("btn-takeoff").onclick = () => socket.emit("cmd_takeoff", { alt: parseFloat(document.getElementById("takeoff-alt").value) });
+document.getElementById("btn-land").onclick = () => socket.emit("cmd_land", {});
+document.getElementById("btn-launch-all").onclick = () => socket.emit("cmd_launch_all", {});
+document.getElementById("btn-kill-all").onclick = () => { if (confirm("Kill ALL drones?")) socket.emit("cmd_kill_all", {}); };
+
+document.getElementById("formation-heading").oninput = (e) => document.getElementById("heading-val").textContent = e.target.value;
+document.getElementById("formation-spacing").oninput = (e) => document.getElementById("spacing-val").textContent = parseFloat(e.target.value).toFixed(1);
+document.getElementById("btn-formation").onclick = () => socket.emit("cmd_formation", {
+    shape: document.getElementById("formation-shape").value,
+    heading_deg: parseFloat(document.getElementById("formation-heading").value),
+    spacing_m: parseFloat(document.getElementById("formation-spacing").value),
 });
 
-document.getElementById("btn-land").addEventListener("click", () => {
-    socket.emit("cmd_land", {});
-});
+document.getElementById("btn-waypoint").onclick = () => {
+    const lat = parseFloat(document.getElementById("wp-lat").value);
+    const lon = parseFloat(document.getElementById("wp-lon").value);
+    if (isNaN(lat) || isNaN(lon)) { addLog("WARN", "Enter valid lat/lon or click map"); return; }
+    socket.emit("cmd_waypoint", {
+        drone_id: parseInt(document.getElementById("drone-select").value),
+        lat, lon, alt: parseFloat(document.getElementById("wp-alt").value),
+    });
+};
 
-// Launch All / Kill All
-document.getElementById("btn-launch-all").addEventListener("click", () => {
-    socket.emit("cmd_launch_all", {});
-});
+let swarmWpMarker = null;
+document.getElementById("btn-swarm-waypoint").onclick = () => {
+    const lat = parseFloat(document.getElementById("swarm-wp-lat").value);
+    const lon = parseFloat(document.getElementById("swarm-wp-lon").value);
+    if (isNaN(lat) || isNaN(lon)) { addLog("WARN", "Enter valid lat/lon or click map"); return; }
+    socket.emit("cmd_swarm_waypoint", {
+        lat, lon, alt: parseFloat(document.getElementById("swarm-wp-alt").value) || 10,
+    });
+    if (swarmWpMarker) map.removeLayer(swarmWpMarker);
+    swarmWpMarker = L.circleMarker([lat, lon], {
+        radius: 12, color: "#fbbf24", fillColor: "#f59e0b", fillOpacity: 0.6, weight: 2,
+    }).addTo(map).bindTooltip("Swarm WP", { permanent: true, direction: "top", className: "wp-tooltip" });
+    setTimeout(() => { if (swarmWpMarker) { map.removeLayer(swarmWpMarker); swarmWpMarker = null; } }, 15000);
+};
 
-document.getElementById("btn-kill-all").addEventListener("click", () => {
-    if (!confirm("Kill ALL drone processes?")) return;
-    socket.emit("cmd_kill_all", {});
-});
+document.getElementById("btn-goto-ned").onclick = () => {
+    const n = parseFloat(document.getElementById("ned-north").value);
+    const e = parseFloat(document.getElementById("ned-east").value);
+    if (isNaN(n) || isNaN(e)) { addLog("WARN", "Enter valid N/E offsets"); return; }
+    socket.emit("cmd_waypoint_ned", {
+        drone_id: parseInt(document.getElementById("ned-drone-select").value),
+        north: n, east: e, alt: parseFloat(document.getElementById("ned-alt").value),
+    });
+};
 
-// Formation sliders
-document.getElementById("formation-heading").addEventListener("input", (e) => {
-    document.getElementById("heading-val").textContent = e.target.value;
-});
-document.getElementById("formation-spacing").addEventListener("input", (e) => {
-    document.getElementById("spacing-val").textContent = parseFloat(e.target.value).toFixed(1);
-});
-document.getElementById("btn-formation").addEventListener("click", () => {
-    socket.emit("cmd_formation", {
-        shape: document.getElementById("formation-shape").value,
-        heading_deg: parseFloat(document.getElementById("formation-heading").value),
-        spacing_m: parseFloat(document.getElementById("formation-spacing").value),
+document.getElementById("btn-clear-log").onclick = () => { logScroll.innerHTML = ""; addLog("INFO", "Log cleared"); };
+
+document.getElementById("btn-auto-center").onclick = () => {
+    autoCenter = !autoCenter;
+    document.getElementById("btn-auto-center").classList.toggle("active", autoCenter);
+    if (autoCenter && latestState) updateMap(latestState);
+};
+document.getElementById("btn-toggle-trails").onclick = () => {
+    showTrails = !showTrails;
+    document.getElementById("btn-toggle-trails").classList.toggle("active", showTrails);
+    if (!showTrails) clearTrails();
+};
+
+document.getElementById("btn-toggle-isolation").onclick = () => {
+    showIsolationZones = !showIsolationZones;
+    document.getElementById("btn-toggle-isolation").classList.toggle("active", showIsolationZones);
+    if (!showIsolationZones) clearIsolationZones();
+    else if (latestState) updateIsolationZones(latestState);
+};
+
+// Isolation radius slider
+document.getElementById("isolation-radius").oninput = (e) => {
+    document.getElementById("isolation-val").textContent = parseFloat(e.target.value).toFixed(1);
+};
+document.getElementById("btn-set-isolation").onclick = () => {
+    const radius = parseFloat(document.getElementById("isolation-radius").value);
+    currentIsolationRadius = radius;
+    socket.emit("cmd_set_isolation_radius", { radius_m: radius });
+    // Rebuild circles with new radius
+    if (showIsolationZones) {
+        clearIsolationZones();
+        if (latestState) updateIsolationZones(latestState);
+    }
+};
+
+// ── Tab switching (bottom panels) ─────────────────────
+document.querySelectorAll(".bottom-tabs").forEach(tabBar => {
+    tabBar.addEventListener("click", (e) => {
+        const tab = e.target.closest(".bottom-tab");
+        if (!tab) return;
+        const target = tab.dataset.target;
+        const section = tabBar.closest(".bottom-section");
+        section.querySelectorAll(".bottom-tab").forEach(t => t.classList.remove("active"));
+        section.querySelectorAll(".tab-pane").forEach(p => p.classList.remove("active"));
+        tab.classList.add("active");
+        const pane = document.getElementById(target);
+        if (pane) pane.classList.add("active");
     });
 });
 
-// GPS Waypoint
-document.getElementById("btn-waypoint").addEventListener("click", () => {
-    const droneId = parseInt(document.getElementById("drone-select").value);
-    const lat = parseFloat(document.getElementById("wp-lat").value);
-    const lon = parseFloat(document.getElementById("wp-lon").value);
-    const alt = parseFloat(document.getElementById("wp-alt").value);
-    if (isNaN(lat) || isNaN(lon)) {
-        addLog("WARN", "Enter valid lat/lon or click on canvas");
-        return;
-    }
-    socket.emit("cmd_waypoint", { drone_id: droneId, lat: lat, lon: lon, alt: alt });
-});
+// ── Diagnostics ─────────────────────────────────────────
 
-// NED Waypoint
-document.getElementById("btn-goto-ned").addEventListener("click", () => {
-    const droneId = parseInt(document.getElementById("ned-drone-select").value);
-    const north = parseFloat(document.getElementById("ned-north").value);
-    const east = parseFloat(document.getElementById("ned-east").value);
-    const alt = parseFloat(document.getElementById("ned-alt").value);
-    if (isNaN(north) || isNaN(east)) {
-        addLog("WARN", "Enter valid North and East offsets");
-        return;
-    }
-    socket.emit("cmd_waypoint_ned", { drone_id: droneId, north: north, east: east, alt: alt });
-});
+function renderDiagResults(results) {
+    const container = document.getElementById("diag-results");
+    container.innerHTML = "";
+    let passed = 0, failed = 0, errors = 0;
 
-// ── Failure injection ──────────────────────────────────
+    for (const r of results) {
+        const card = document.createElement("div");
+        card.className = `diag-card diag-${r.status}`;
 
-function blockComms(droneId) {
-    socket.emit("cmd_block_comms", { drone_id: droneId });
-    const row = document.getElementById(`failure-row-${droneId}`);
-    if (row) {
-        row.querySelector(".btn-block").disabled = true;
-        row.querySelector(".btn-restore").disabled = false;
+        const icon = r.status === "pass" ? "\u2713" : r.status === "fail" ? "\u2717" : "\u26A0";
+
+        if (r.status === "pass") passed++;
+        else if (r.status === "fail") failed++;
+        else errors++;
+
+        let assertHtml = "";
+        if (r.assertions && r.assertions.length > 0) {
+            assertHtml = '<div class="diag-assertions">';
+            for (const a of r.assertions) {
+                const cls = a.passed ? "assert-pass" : "assert-fail";
+                const ai = a.passed ? "\u2713" : "\u2717";
+                assertHtml += `<div class="assert-row ${cls}">${ai} ${a.check} <span class="assert-val">${a.value}</span></div>`;
+            }
+            assertHtml += "</div>";
+        }
+
+        let diagHtml = "";
+        if (r.test_id === "formation_geometry" && r.details && r.details.positions) {
+            diagHtml = renderFormationDiagram(r.details.positions);
+        }
+
+        let errHtml = "";
+        if (r.status === "error" && r.details) {
+            const msg = r.details.error || r.details.message || "";
+            if (msg) errHtml = `<div class="diag-error-msg">${msg}</div>`;
+        }
+
+        card.innerHTML = `
+            <div class="diag-header" onclick="this.parentElement.classList.toggle('expanded')">
+                <span class="diag-status diag-${r.status}">${icon}</span>
+                <span class="diag-name">${r.test_name || r.test_id}</span>
+                <span class="diag-time">${(r.duration_ms || 0).toFixed(0)}ms</span>
+                <span class="diag-expand">&#9662;</span>
+            </div>
+            <div class="diag-body">${errHtml}${assertHtml}${diagHtml}</div>`;
+        container.appendChild(card);
     }
+
+    const summary = document.getElementById("diag-summary");
+    const total = passed + failed + errors;
+    const cls = (failed + errors > 0) ? "diag-fail" : "diag-pass";
+    summary.innerHTML = `<span class="${cls}">${passed}/${total}</span>`;
 }
 
-function restoreComms(droneId) {
-    socket.emit("cmd_restore_comms", { drone_id: droneId });
-    const row = document.getElementById(`failure-row-${droneId}`);
-    if (row) {
-        row.querySelector(".btn-block").disabled = false;
-        row.querySelector(".btn-restore").disabled = true;
+function renderFormationDiagram(positions) {
+    const keys = Object.keys(positions).filter(k => k.includes("H0") && k.includes("N5")).slice(0, 4);
+    if (keys.length === 0) return "";
+    let html = '<div class="diag-formations">';
+    for (const key of keys) {
+        const pts = positions[key];
+        const sz = 90, mg = 12;
+        const ns = pts.map(p => p.offset_n);
+        const es = pts.map(p => p.offset_e);
+        const range = Math.max(Math.max(...ns) - Math.min(...ns), Math.max(...es) - Math.min(...es), 1);
+        const scale = (sz - 2 * mg) / range;
+        const cn = (Math.max(...ns) + Math.min(...ns)) / 2;
+        const ce = (Math.max(...es) + Math.min(...es)) / 2;
+        let dots = "";
+        for (const p of pts) {
+            const x = mg + (p.offset_e - ce + range / 2) * scale;
+            const y = mg + (-(p.offset_n - cn) + range / 2) * scale;
+            const c = COLORS[(p.drone_id - 1) % COLORS.length];
+            dots += `<circle cx="${x}" cy="${y}" r="3.5" fill="${c}"/>`;
+            dots += `<text x="${x}" y="${y - 5}" text-anchor="middle" fill="${c}" font-size="7">D${p.drone_id}</text>`;
+        }
+        const label = key.split("_")[0];
+        html += `<div class="formation-mini">
+            <div class="formation-label">${label}</div>
+            <svg width="${sz}" height="${sz}" class="formation-svg">${dots}</svg></div>`;
     }
+    html += "</div>";
+    return html;
 }
 
-// ── Initialization ─────────────────────────────────────
+socket.on("test_results", data => { if (data.results) renderDiagResults(data.results); });
+socket.on("test_result", data => { if (data.result) renderDiagResults([data.result]); });
+
+document.getElementById("btn-run-all-tests").onclick = () => {
+    document.getElementById("diag-results").innerHTML = '<div class="diag-loading">Running tests...</div>';
+    document.getElementById("diag-summary").innerHTML = "";
+    socket.emit("run_all_tests", {});
+};
+
+// ── Init ───────────────────────────────────────────────
 
 function init() {
-    // Drone selectors
+    initMap();
     updateDroneSelects();
 
+    // Panel collapse handlers
+    document.querySelectorAll(".panel-header").forEach(h => h.addEventListener("click", () => togglePanel(h)));
+
     // Failure grid
-    const grid = document.getElementById("failure-grid");
+    const fg = document.getElementById("failure-grid");
     for (let i = 1; i <= MAX_DRONES; i++) {
-        const row = document.createElement("div");
-        row.className = "failure-row";
-        row.id = `failure-row-${i}`;
-        row.innerHTML = `
-            <span style="color:${COLORS[(i-1) % COLORS.length]}">D${i}</span>
-            <button class="btn-block" onclick="blockComms(${i})">Block</button>
-            <button class="btn-restore" onclick="restoreComms(${i})" disabled>Restore</button>
-        `;
-        grid.appendChild(row);
+        const c = COLORS[(i - 1) % COLORS.length];
+        const r = document.createElement("div");
+        r.className = "failure-row";
+        r.id = `fail-${i}`;
+        r.innerHTML = `<span style="color:${c}">D${i}</span>
+            <button class="btn btn-warning btn-sm" onclick="blockComms(${i})">Block</button>
+            <button class="btn btn-success btn-sm" onclick="restoreComms(${i})" disabled>Restore</button>`;
+        fg.appendChild(r);
     }
 
-    // Drone management grid (initial render)
     renderDroneGrid();
-
-    // Draw empty canvas
-    ctx.fillStyle = "#1a1a2e";
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-    ctx.fillStyle = "rgba(255,255,255,0.3)";
-    ctx.font = "14px monospace";
-    ctx.fillText("Waiting for drone data...", canvas.width/2 - 100, canvas.height/2);
-
-    addLog("INFO", "Web GCS initialized, waiting for connection...");
+    addLog("INFO", "GCS initialized, waiting for connection...");
 }
 
 init();

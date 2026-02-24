@@ -4,65 +4,121 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Swarm SITL — Web GCS</title>
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+
+    <!-- Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+
+    <!-- Leaflet -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+          integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+            integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+
+    <!-- Socket.IO -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.5/socket.io.min.js"></script>
+
+    <!-- App CSS -->
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
 </head>
 <body>
-    <!-- TOP BAR -->
+    <!-- FULL-SCREEN MAP (background layer) -->
+    <div id="map"></div>
+
+    <!-- ═══ TOP BAR ═══ -->
     <header id="topbar">
-        <h1>SWARM SITL GCS</h1>
-        <span id="elapsed">00:00</span>
-        <span id="conn-status" class="disconnected">Disconnected</span>
-        <span style="color:#555; margin-left:auto; font-size:11px;">max {{ max_drones }} drones</span>
+        <div class="topbar-brand">
+            <svg class="brand-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#60a5fa" stroke-width="2.5">
+                <circle cx="12" cy="12" r="3"/><path d="M12 1v4M12 19v4M1 12h4M19 12h4M4.2 4.2l2.8 2.8M17 17l2.8 2.8M4.2 19.8l2.8-2.8M17 7l2.8-2.8"/>
+            </svg>
+            <h1>SWARM GCS</h1>
+        </div>
+        <div class="topbar-stats">
+            <div class="stat-chip"><span class="stat-label">TIME</span><span id="elapsed" class="stat-value">00:00</span></div>
+            <div class="stat-chip"><span class="stat-label">DRONES</span><span id="drone-count" class="stat-value">0/{{ max_drones }}</span></div>
+            <div class="stat-chip"><span class="stat-label">AVG ALT</span><span id="avg-alt" class="stat-value">0.0m</span></div>
+        </div>
+        <div class="topbar-right">
+            <span id="conn-status" class="conn-badge disconnected">
+                <span class="conn-dot"></span> Disconnected
+            </span>
+        </div>
     </header>
 
-    <!-- MAIN CONTENT -->
-    <div id="main">
-        <!-- LEFT: Canvas visualization -->
-        <div id="viz-panel">
-            <canvas id="swarm-canvas" width="580" height="580"></canvas>
-        </div>
+    <!-- ═══ MAP TOOL BUTTONS (floating, above bottom panel) ═══ -->
+    <div id="map-tools">
+        <button id="btn-auto-center" class="map-btn active" title="Auto-center">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="3"/><path d="M12 2v4M12 18v4M2 12h4M18 12h4"/></svg>
+        </button>
+        <button id="btn-toggle-trails" class="map-btn active" title="Toggle trails">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="3,17 9,11 13,15 21,7"/><polyline points="16,7 21,7 21,12"/></svg>
+        </button>
+        <button id="btn-toggle-isolation" class="map-btn" title="Toggle isolation zones">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="9"/><line x1="4" y1="4" x2="20" y2="20"/></svg>
+        </button>
+        <button id="btn-toggle-network" class="map-btn active" title="Toggle network mesh">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="5" cy="6" r="2"/><circle cx="19" cy="6" r="2"/><circle cx="12" cy="18" r="2"/><line x1="7" y1="6" x2="17" y2="6"/><line x1="6" y1="8" x2="11" y2="16"/><line x1="18" y1="8" x2="13" y2="16"/></svg>
+        </button>
+    </div>
 
-        <!-- RIGHT: Status + Commands + Drone Mgmt + Failure -->
-        <div id="control-panel">
-            <!-- Drone Management -->
-            <section id="drone-mgmt-section">
-                <h2>Drone Management</h2>
-                <div class="cmd-row">
-                    <button id="btn-launch-all" class="btn-launch">Launch All</button>
-                    <button id="btn-kill-all" class="btn-kill">Kill All</button>
+    <!-- ═══ LEFT SIDEBAR — Fleet & Failure ═══ -->
+    <div id="left-sidebar">
+        <div class="panel">
+            <div class="panel-header" data-panel="fleet">
+                <span class="panel-title">Fleet</span>
+                <span class="panel-chevron">&#9662;</span>
+            </div>
+            <div class="panel-body">
+                <div class="cmd-row" style="margin-bottom:6px">
+                    <button id="btn-launch-all" class="btn btn-success btn-sm">Launch All</button>
+                    <button id="btn-kill-all" class="btn btn-danger btn-sm">Kill All</button>
                 </div>
                 <div id="drone-mgmt-grid"></div>
-            </section>
+            </div>
+        </div>
 
-            <!-- Drone status table -->
-            <section id="status-section">
-                <h2>Drone Status</h2>
-                <table id="status-table">
-                    <thead>
-                        <tr>
-                            <th>ID</th><th>Mode</th><th>Alt(m)</th>
-                            <th>Batt</th><th>Armed</th><th>FS</th>
-                            <th>State</th><th>Leader</th><th>Alive</th>
-                        </tr>
-                    </thead>
-                    <tbody id="status-body"></tbody>
-                </table>
-            </section>
+        <div class="panel">
+            <div class="panel-header" data-panel="failure">
+                <span class="panel-title">Failure Injection</span>
+                <span class="panel-chevron">&#9662;</span>
+            </div>
+            <div class="panel-body">
+                <div id="failure-grid"></div>
+            </div>
+        </div>
 
-            <!-- Command panel -->
-            <section id="cmd-section">
-                <h2>Commands</h2>
+        <div class="panel">
+            <div class="panel-header" data-panel="diagnostics">
+                <span class="panel-title">Diagnostics</span>
+                <span class="panel-chevron">&#9662;</span>
+            </div>
+            <div class="panel-body">
+                <div class="cmd-row" style="margin-bottom:6px">
+                    <button id="btn-run-all-tests" class="btn btn-primary btn-sm">Run All Tests</button>
+                    <span id="diag-summary" class="diag-summary"></span>
+                </div>
+                <div id="diag-results"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ═══ RIGHT SIDEBAR — Commands ═══ -->
+    <div id="right-sidebar">
+        <div class="panel">
+            <div class="panel-header" data-panel="commands">
+                <span class="panel-title">Commands</span>
+                <span class="panel-chevron">&#9662;</span>
+            </div>
+            <div class="panel-body">
                 <div class="cmd-row">
-                    <button id="btn-takeoff">Takeoff All</button>
+                    <button id="btn-takeoff" class="btn btn-primary btn-sm">Takeoff All</button>
                     <input id="takeoff-alt" type="number" value="10" min="1" max="100" step="1">
-                    <label>m</label>
-                </div>
-                <div class="cmd-row">
-                    <button id="btn-land">Land All</button>
+                    <span class="input-unit">m</span>
+                    <button id="btn-land" class="btn btn-sm">Land All</button>
                 </div>
 
-                <h3>Formation</h3>
+                <div class="sub-label">Formation</div>
                 <div class="cmd-row">
                     <select id="formation-shape">
                         <option value="V">V</option>
@@ -70,61 +126,121 @@
                         <option value="COLUMN">COLUMN</option>
                         <option value="DIAMOND">DIAMOND</option>
                     </select>
-                    <label>Hdg:</label>
+                    <span class="input-unit">Hdg</span>
                     <input id="formation-heading" type="range" min="0" max="359" value="0">
-                    <span id="heading-val">0</span>&deg;
+                    <span id="heading-val" class="range-val">0</span>&deg;
                 </div>
                 <div class="cmd-row">
-                    <label>Spc:</label>
+                    <span class="input-unit">Spc</span>
                     <input id="formation-spacing" type="range" min="3" max="20" value="8" step="0.5">
-                    <span id="spacing-val">8.0</span>m
-                    <button id="btn-formation">Set Formation</button>
+                    <span id="spacing-val" class="range-val">8.0</span>m
+                    <button id="btn-formation" class="btn btn-primary btn-sm">Set</button>
                 </div>
 
-                <h3>Waypoint (GPS)</h3>
+                <div class="sub-label">Swarm Waypoint</div>
+                <div class="cmd-row">
+                    <input id="swarm-wp-lat" type="number" step="0.00001" placeholder="Lat">
+                    <input id="swarm-wp-lon" type="number" step="0.00001" placeholder="Lon">
+                    <input id="swarm-wp-alt" type="number" value="10" min="1" max="100" step="1" style="width:46px">
+                    <button id="btn-swarm-waypoint" class="btn btn-primary btn-sm">Swarm Go</button>
+                </div>
+
+                <div class="sub-label">Drone Waypoint (GPS)</div>
                 <div class="cmd-row">
                     <select id="drone-select"></select>
                     <input id="wp-lat" type="number" step="0.00001" placeholder="Lat">
                     <input id="wp-lon" type="number" step="0.00001" placeholder="Lon">
-                    <input id="wp-alt" type="number" value="10" min="1" max="100" step="1" style="width:50px">
-                    <label>m</label>
-                    <button id="btn-waypoint">Go</button>
+                    <input id="wp-alt" type="number" value="10" min="1" max="100" step="1" style="width:46px">
+                    <button id="btn-waypoint" class="btn btn-primary btn-sm">Go</button>
                 </div>
-                <div style="font-size:10px; color:#555; margin-top:2px;">
-                    Click canvas to set lat/lon for selected drone
+                <div class="hint">Click map to set lat/lon</div>
+
+                <div class="sub-label">Safety</div>
+                <div class="cmd-row">
+                    <span class="input-unit">Isolation</span>
+                    <input id="isolation-radius" type="range" min="2" max="15" value="5" step="0.5">
+                    <span id="isolation-val" class="range-val">5.0</span>m
+                    <button id="btn-set-isolation" class="btn btn-danger btn-sm">Set</button>
                 </div>
 
-                <h3>Go To (NED offset)</h3>
+                <div class="sub-label">Go To (NED)</div>
                 <div class="cmd-row">
                     <select id="ned-drone-select"></select>
-                    <input id="ned-north" type="number" step="1" placeholder="N (m)" style="width:65px">
-                    <input id="ned-east" type="number" step="1" placeholder="E (m)" style="width:65px">
-                    <input id="ned-alt" type="number" value="10" min="1" max="100" step="1" style="width:50px">
-                    <label>m</label>
-                    <button id="btn-goto-ned">Go NED</button>
+                    <input id="ned-north" type="number" step="1" placeholder="N(m)" style="width:58px">
+                    <input id="ned-east" type="number" step="1" placeholder="E(m)" style="width:58px">
+                    <input id="ned-alt" type="number" value="10" min="1" max="100" step="1" style="width:46px">
+                    <button id="btn-goto-ned" class="btn btn-primary btn-sm">Go</button>
                 </div>
-                <div style="font-size:10px; color:#555; margin-top:2px;">
-                    Offset from leader/centroid position
-                </div>
-            </section>
-
-            <!-- Failure injection -->
-            <section id="failure-section">
-                <h2>Failure Injection</h2>
-                <div id="failure-grid"></div>
-            </section>
+            </div>
         </div>
     </div>
 
-    <!-- BOTTOM: Event log -->
-    <div id="log-panel">
-        <h2>Event Log</h2>
-        <div id="log-scroll"></div>
+    <!-- ═══ BOTTOM PANEL — Telemetry + Log | Network Mesh ═══ -->
+    <div id="bottom-panel">
+        <!-- Left half: Telemetry + Log -->
+        <div class="bottom-section" id="bottom-left">
+            <div class="bottom-tabs">
+                <button class="bottom-tab active" data-target="tab-telemetry">Telemetry</button>
+                <button class="bottom-tab" data-target="tab-log">Event Log</button>
+            </div>
+            <div class="bottom-content">
+                <div id="tab-telemetry" class="tab-pane active">
+                    <div id="status-table-wrap">
+                        <table id="status-table">
+                            <thead><tr>
+                                <th>ID</th><th>Mode</th><th>Alt</th><th>Batt</th>
+                                <th>Armed</th><th>FS</th><th>State</th><th>Ldr</th><th>Peers</th>
+                            </tr></thead>
+                            <tbody id="status-body"></tbody>
+                        </table>
+                    </div>
+                </div>
+                <div id="tab-log" class="tab-pane">
+                    <div class="log-controls">
+                        <button id="btn-clear-log" class="btn btn-sm">Clear</button>
+                    </div>
+                    <div id="log-scroll"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Right half: Network Mesh -->
+        <div class="bottom-section" id="bottom-right">
+            <div class="bottom-tabs">
+                <button class="bottom-tab active" data-target="tab-net-stats">Packet Stats</button>
+                <button class="bottom-tab" data-target="tab-net-routing">Routing</button>
+                <button class="bottom-tab" data-target="tab-net-config">Config</button>
+            </div>
+            <div class="bottom-content">
+                <div id="tab-net-stats" class="tab-pane active">
+                    <div id="net-node-stats"><span class="hint">No mesh data yet</span></div>
+                </div>
+                <div id="tab-net-routing" class="tab-pane">
+                    <div class="cmd-row" style="margin-bottom:4px">
+                        <select id="net-route-drone" style="width:60px"></select>
+                    </div>
+                    <div id="net-routing"><span class="hint">No routes</span></div>
+                </div>
+                <div id="tab-net-config" class="tab-pane">
+                    <div class="cmd-row" style="margin-bottom:6px">
+                        <span class="input-unit">Radio Range</span>
+                        <input id="net-range-slider" type="range" min="10" max="200" value="100" step="5">
+                        <span id="net-range-val" class="range-val">100</span>m
+                    </div>
+                    <div class="net-section-label">Route Trace</div>
+                    <div class="cmd-row">
+                        <select id="net-trace-src" style="width:60px"></select>
+                        <span class="input-unit">&rarr;</span>
+                        <select id="net-trace-dst" style="width:60px"></select>
+                        <button id="btn-trace-route" class="btn btn-primary btn-sm">Trace</button>
+                    </div>
+                </div>
+            </div>
+        </div>
     </div>
 
-    <script>
-        const MAX_DRONES = {{ max_drones }};
-    </script>
+    <script>const MAX_DRONES = {{ max_drones }};</script>
     <script src="{{ url_for('static', filename='js/swarm.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/network.js') }}"></script>
 </body>
 </html>

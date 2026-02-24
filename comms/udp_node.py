@@ -26,6 +26,11 @@ class UDPNode:
         """Send a datagram to host:port."""
         self.sock.sendto(data, (host, port))
 
+    def send_to_multiple(self, data: bytes, targets: list[tuple[str, int]]):
+        """Send the same datagram to multiple (host, port) targets."""
+        for host, port in targets:
+            self.sock.sendto(data, (host, port))
+
     def recv_all(self) -> list[tuple[bytes, tuple[str, int]]]:
         """Drain all pending datagrams. Returns list of (data, addr)."""
         messages = []

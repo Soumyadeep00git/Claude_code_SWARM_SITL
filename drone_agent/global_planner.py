@@ -1,13 +1,20 @@
 """
-Global planner — formation slot management.
+Global planner — formation slot management + Hybrid A* path planning.
 Computes this drone's target position based on its assigned slot,
 the current formation shape, and the formation reference point.
+When the target is far or obstructed, Hybrid A* generates intermediate
+waypoints for the local planner to follow.
 """
 
+import time
 import logging
+import numpy as np
 from math import cos, sin, radians, pi
 
-from config import DEFAULT_SPACING_M, DEFAULT_FORMATION, NUM_DRONES
+from config import (DEFAULT_SPACING_M, DEFAULT_FORMATION, NUM_DRONES,
+                    ASTAR_CONFIG, ASTAR_REPLAN_INTERVAL_S)
+from drone_agent.hybrid_astar import HybridAStarPlanner
+from drone_agent.geo import gps_to_ned_2d
 
 log = logging.getLogger(__name__)
 
@@ -28,6 +35,12 @@ class GlobalPlanner:
         self.ref_alt: float = 0.0
         self.ref_heading: float = 0.0  # degrees
         self.leader_id: int = 1
+
+        # Hybrid A* path planner
+        self._astar = HybridAStarPlanner(ASTAR_CONFIG)
+        self._last_replan: float = 0.0
+        self._cached_path: list = []   # List of (north, east) NED waypoints
+        self._wp_index: int = 0
 
     def set_formation(self, data: dict):
         """Update formation parameters from a FORMATION_CMD message."""
@@ -146,3 +159,77 @@ class GlobalPlanner:
                 self.drone_id, old_slot, self.slot,
                 sorted_ids, leader_id, self.num_drones,
             )
+
+    # ── Hybrid A* path planning ──────────────────────────────
+
+    def get_target_ned(self):
+        """Get formation slot target as NED offset [north, east, down]."""
+        n, e = self._compute_slot_offset()
+        return np.array([n, e, 0.0], dtype=np.float64)
+
+    def plan_path(self, my_lat, my_lon, peer_gps_list):
+        """
+        Compute collision-free path to formation slot via Hybrid A*.
+        Runs A* at 1 Hz, caches path between replans.
+
+        Args:
+            my_lat, my_lon: current GPS position
+            peer_gps_list: list of (lat, lon) for known peers
+
+        Returns:
+            (path_ned, goal_ned): path is list of (north, east) waypoints in NED,
+                                  goal is np.array [n, e, d] of slot target.
+        """
+        goal_ned = self.get_target_ned()
+        now = time.time()
+
+        # Only replan at configured interval
+        if now - self._last_replan < ASTAR_REPLAN_INTERVAL_S:
+            return self._cached_path, goal_ned
+
+        self._last_replan = now
+
+        # Convert own position to NED relative to formation reference
+        my_n, my_e = gps_to_ned_2d(my_lat, my_lon, self.ref_lat, self.ref_lon)
+        start = np.array([my_n, my_e])
+        goal_2d = np.array([goal_ned[0], goal_ned[1]])
+
+        # Convert peer positions to NED
+        peer_ned = []
+        for plat, plon in peer_gps_list:
+            if plat == 0.0 and plon == 0.0:
+                continue
+            pn, pe = gps_to_ned_2d(plat, plon, self.ref_lat, self.ref_lon)
+            peer_ned.append([pn, pe])
+
+        peer_arr = np.array(peer_ned) if peer_ned else np.empty((0, 2))
+
+        # Run Hybrid A* (short-circuits internally for close/clear paths)
+        path = self._astar.plan(start, goal_2d, peer_arr)
+
+        self._cached_path = path
+        self._wp_index = 0
+
+        return self._cached_path, goal_ned
+
+    def get_current_waypoint_ned(self, my_n, my_e, arrival_radius=2.0):
+        """
+        Get the next waypoint to track from cached path.
+        Advances index when drone arrives within arrival_radius.
+
+        Returns: (north, east) tuple of current waypoint.
+        """
+        if not self._cached_path:
+            n, e = self._compute_slot_offset()
+            return (n, e)
+
+        # Advance past arrived waypoints
+        while self._wp_index < len(self._cached_path) - 1:
+            wp = self._cached_path[self._wp_index]
+            dist = np.hypot(wp[0] - my_n, wp[1] - my_e)
+            if dist < arrival_radius:
+                self._wp_index += 1
+            else:
+                break
+
+        return self._cached_path[self._wp_index]

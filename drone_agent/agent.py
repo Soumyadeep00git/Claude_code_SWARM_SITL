@@ -19,10 +19,13 @@ import time
 import signal
 import logging
 
+import numpy as np
+
 from config import (
     NUM_DRONES, GCS_HOST, GCS_PORT,
     AGENT_BASE_PORT, AGENT_PORT_STEP,
     AGENT_LOOP_HZ, STATE_REPORT_HZ,
+    P2P_ENABLED, MESH_SIM_ENABLED, MESH_SIM_RANGE_M,
 )
 from comms.protocol import make_msg, parse_msg
 from comms.udp_node import UDPNode
@@ -31,6 +34,11 @@ from drone_agent.state import DroneState, PeerTable
 from drone_agent.local_planner import LocalPlanner
 from drone_agent.global_planner import GlobalPlanner
 from drone_agent.failsafe import FailsafeManager, SwarmState
+from drone_agent.geo import gps_to_ned_2d
+
+if MESH_SIM_ENABLED:
+    from comms.mesh_sim import SimulatedUDPNode
+    from drone_agent.mesh_router import MeshRouter
 
 log = logging.getLogger(__name__)
 
@@ -44,9 +52,22 @@ class DroneAgent:
 
         # Components
         self.conn = DroneConnection(drone_id)
-        self.udp = UDPNode(AGENT_BASE_PORT + drone_id * AGENT_PORT_STEP)
         self.state = DroneState(drone_id=drone_id)
         self.peers = PeerTable()
+
+        # UDP node: simulated mesh or plain
+        if MESH_SIM_ENABLED:
+            self.udp = SimulatedUDPNode(
+                AGENT_BASE_PORT + drone_id * AGENT_PORT_STEP,
+                drone_id=drone_id,
+                position_getter=self._get_all_positions,
+                max_range_m=MESH_SIM_RANGE_M,
+            )
+            self.mesh_router = MeshRouter(drone_id, NUM_DRONES)
+        else:
+            self.udp = UDPNode(AGENT_BASE_PORT + drone_id * AGENT_PORT_STEP)
+            self.mesh_router = None
+
         self.local_planner = LocalPlanner(self.conn)
         self.global_planner = GlobalPlanner(drone_id, NUM_DRONES)
         self.failsafe = FailsafeManager(
@@ -55,10 +76,23 @@ class DroneAgent:
             expected_peers=set(range(1, NUM_DRONES + 1)),
         )
 
+        # P2P peer targets: (host, port) for all other drones
+        if P2P_ENABLED:
+            self._peer_targets = [
+                (GCS_HOST, AGENT_BASE_PORT + i * AGENT_PORT_STEP)
+                for i in range(1, NUM_DRONES + 1)
+                if i != drone_id
+            ]
+        else:
+            self._peer_targets = []
+
         # Timing
         self._loop_period = 1.0 / AGENT_LOOP_HZ
         self._report_interval = 1.0 / STATE_REPORT_HZ
         self._last_report = 0.0
+
+        # PROXIMITY_ALERT rate limiting (max 1 per second)
+        self._last_prox_alert_time = 0.0
 
         log.info("Drone %d agent initialized", drone_id)
 
@@ -82,29 +116,99 @@ class DroneAgent:
             self.state.leader_id = self.failsafe.elect_leader()
             self.state.alive_count = len(self.failsafe._alive_peers)
 
+            # 3b. BROADCAST PROXIMITY_ALERT — cooperative collision avoidance
+            if self.failsafe._proximity_peers and t0 - self._last_prox_alert_time >= 1.0:
+                alert_data = self.failsafe.build_proximity_alert(self.peers, self.state)
+                if alert_data:
+                    raw = make_msg("PROXIMITY_ALERT", self.drone_id, alert_data)
+                    self.udp.send(raw, GCS_HOST, GCS_PORT)
+                    if self._peer_targets:
+                        self.udp.send_to_multiple(raw, self._peer_targets)
+                    self._last_prox_alert_time = t0
+
             # 4. PLAN & EXECUTE — runs in NOMINAL and DEGRADED
             if self.failsafe.state in (SwarmState.NOMINAL, SwarmState.DEGRADED):
-                if self.global_planner.formation != "NONE":
-                    target = self.global_planner.get_target_position()
-                    self.local_planner.set_waypoint(*target)
+                has_gps = (self.state.lat != 0.0 or self.state.lon != 0.0)
+
+                # Always collect peer GPS for collision avoidance (all modes)
+                peer_gps = []
+                if has_gps:
+                    for pid, plat, plon, palt, pvx, pvy, pvz in self.peers.get_all_states():
+                        if pid == self.drone_id or (plat == 0.0 and plon == 0.0):
+                            continue
+                        peer_gps.append((plat, plon))
+                self.local_planner.update_peer_gps(
+                    self.state.lat, self.state.lon, self.state.alt, peer_gps)
+
+                if self.global_planner.formation != "NONE" and has_gps:
+                    # Gather peer NED positions for formation controller
+                    peer_ned = []
+                    peer_vel_ned = []
+                    ref_lat = self.global_planner.ref_lat
+                    ref_lon = self.global_planner.ref_lon
+                    ref_alt = self.global_planner.ref_alt
+
+                    for pid, plat, plon, palt, pvx, pvy, pvz in self.peers.get_all_states():
+                        if pid == self.drone_id or (plat == 0.0 and plon == 0.0):
+                            continue
+                        pn, pe = gps_to_ned_2d(plat, plon, ref_lat, ref_lon)
+                        peer_ned.append([pn, pe, -(palt - ref_alt)])
+                        peer_vel_ned.append([pvx, pvy, pvz])
+
+                    peer_ned_arr = np.array(peer_ned) if peer_ned else np.empty((0, 3))
+                    peer_vel_arr = np.array(peer_vel_ned) if peer_vel_ned else np.empty((0, 3))
+
+                    # Global planner: Hybrid A* path at 1 Hz
+                    path_ned, goal_ned = self.global_planner.plan_path(
+                        self.state.lat, self.state.lon, peer_gps)
+
+                    # Feed NED state and formation data to local planner
+                    self.local_planner.update_own_state_ned(
+                        self.state.lat, self.state.lon, self.state.alt,
+                        self.state.vx, self.state.vy, self.state.vz,
+                        ref_lat, ref_lon, ref_alt)
+                    self.local_planner.set_formation_target(
+                        goal_ned, path_ned, peer_ned_arr,
+                        ref_lat, ref_lon, ref_alt,
+                        peer_velocities_ned=peer_vel_arr)
+
                 self.local_planner.tick(
                     armed=self.state.armed,
                     mode=self.state.mode,
-                    has_gps=(self.state.lat != 0.0 or self.state.lon != 0.0),
+                    has_gps=has_gps,
+                    alt=self.state.alt,
                 )
 
-            # 5. REPORT — send state to GCS
+            # 5. MESH ROUTER — update neighbors and advertise
+            if self.mesh_router is not None and MESH_SIM_ENABLED:
+                link_map = self.udp.get_link_quality_map()
+                self.mesh_router.update_neighbors(link_map)
+                if self.mesh_router.should_advertise():
+                    ad_data = self.mesh_router.get_advertisement_data()
+                    raw = make_msg("NEIGHBOR_AD", self.drone_id, ad_data)
+                    self.udp.send(raw, GCS_HOST, GCS_PORT)
+                    if self._peer_targets:
+                        self.udp.send_to_multiple(raw, self._peer_targets)
+                # Update mesh stats on state
+                self.state.mesh_stats = {
+                    "link_qualities": {str(k): v for k, v in link_map.items()},
+                    "link_stats": {str(k): v for k, v in self.udp.get_link_stats().items()},
+                    "routing_table": {str(k): v for k, v in self.mesh_router.get_routing_table().items()},
+                    "forwarded": self.mesh_router.forwarded_count,
+                }
+
+            # 6. REPORT — send state to GCS
             now = time.time()
             if now - self._last_report >= self._report_interval:
                 self._send_state_report()
                 self._last_report = now
 
-            # 6. SEND ALERTS
+            # 7. SEND ALERTS
             for alert in self.failsafe.pop_alerts():
                 raw = make_msg("ALERT", self.drone_id, alert)
                 self.udp.send(raw, GCS_HOST, GCS_PORT)
 
-            # 7. SLEEP to maintain loop rate
+            # 8. SLEEP to maintain loop rate
             elapsed = time.time() - t0
             sleep_time = self._loop_period - elapsed
             if sleep_time > 0:
@@ -198,16 +302,91 @@ class DroneAgent:
             self.global_planner.set_formation(d)
             self.state.formation_slot = self.global_planner.slot
 
+        elif t == "SWARM_WAYPOINT_CMD":
+            if self.global_planner.formation != "NONE":
+                self.global_planner.ref_lat = d["ref_lat"]
+                self.global_planner.ref_lon = d["ref_lon"]
+                self.global_planner.ref_alt = d["ref_alt"]
+                self.global_planner._last_replan = 0.0
+                log.info("Drone %d: swarm waypoint -> (%.6f, %.6f)",
+                         self.drone_id, d["ref_lat"], d["ref_lon"])
+            else:
+                self.local_planner.set_waypoint(d["ref_lat"], d["ref_lon"], d["ref_alt"])
+
         elif t == "STATE_REPORT":
             # Peer state relayed from GCS
             peer_id = d.get("drone_id")
             if peer_id and peer_id != my_id:
                 self.peers.update_peer(peer_id, d, msg.get("ts", time.time()))
+                self.failsafe.update_peer_heartbeat(peer_id)
+
+        elif t == "PEER_HEARTBEAT":
+            # Direct peer-to-peer state update (P2P mesh)
+            peer_id = d.get("drone_id")
+            if peer_id and peer_id != my_id:
+                self.peers.update_peer(peer_id, d, msg.get("ts", time.time()))
+                self.failsafe.update_peer_heartbeat(peer_id)
+
+        elif t == "NEIGHBOR_AD":
+            if self.mesh_router is not None:
+                peer_id = msg["src"]
+                if peer_id != my_id:
+                    self.mesh_router.handle_neighbor_ad(peer_id, d)
+
+        elif t == "MESH_FORWARD":
+            if self.mesh_router is not None:
+                if d.get("dest") == my_id:
+                    # Payload is for us — process it
+                    payload = d.get("payload")
+                    if payload:
+                        self._handle_message(payload)
+                else:
+                    # Forward to next hop
+                    fwd = self.mesh_router.handle_mesh_forward(d)
+                    if fwd:
+                        next_hop = fwd.get("next_hop")
+                        if next_hop:
+                            port = AGENT_BASE_PORT + next_hop * AGENT_PORT_STEP
+                            self.udp.send(
+                                make_msg("MESH_FORWARD", self.drone_id, fwd),
+                                GCS_HOST, port)
+
+        elif t == "MESH_CONFIG_CMD":
+            if MESH_SIM_ENABLED and hasattr(self.udp, 'set_range'):
+                self.udp.set_range(float(d.get("range_m", MESH_SIM_RANGE_M)))
+
+        elif t == "PROXIMITY_ALERT":
+            # Cooperative collision avoidance — peer is warning us
+            self.local_planner.receive_proximity_alert(d, my_id)
+
+        elif t == "SAFETY_CONFIG_CMD":
+            # Update isolation radius on all components
+            radius = float(d.get("isolation_radius_m", 5.0))
+            self.local_planner.set_isolation_radius(radius)
+            self.failsafe.set_isolation_radius(radius)
+            log.info("Drone %d: isolation radius updated to %.1fm", my_id, radius)
+
+    def _get_all_positions(self) -> dict[int, tuple[float, float]]:
+        """Return {drone_id: (lat, lon)} for self and all known peers.
+        Used as position_getter callback by SimulatedUDPNode."""
+        positions = {}
+        if self.state.lat != 0.0 or self.state.lon != 0.0:
+            positions[self.drone_id] = (self.state.lat, self.state.lon)
+        for pid, plat, plon, palt in self.peers.get_all_positions():
+            if plat != 0.0 or plon != 0.0:
+                positions[pid] = (plat, plon)
+        return positions
 
     def _send_state_report(self):
-        """Send current state to GCS."""
-        raw = make_msg("STATE_REPORT", self.drone_id, self.state.to_dict())
-        self.udp.send(raw, GCS_HOST, GCS_PORT)
+        """Send current state to GCS, and directly to peers if P2P enabled."""
+        state_data = self.state.to_dict()
+        # Always send STATE_REPORT to GCS (unchanged)
+        self.udp.send(make_msg("STATE_REPORT", self.drone_id, state_data),
+                      GCS_HOST, GCS_PORT)
+        # P2P: send PEER_HEARTBEAT directly to all peers
+        if self._peer_targets:
+            raw = make_msg("PEER_HEARTBEAT", self.drone_id, state_data)
+            self.udp.send_to_multiple(raw, self._peer_targets)
 
 
 # ── Entry point ────────────────────────────────────────────

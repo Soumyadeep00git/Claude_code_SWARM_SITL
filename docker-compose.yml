@@ -1,0 +1,59 @@
+services:
+  gcs:
+    build: .
+    command: ["python3", "-m", "gcs.web_gcs", "--max-drones", "5"]
+    network_mode: host
+    volumes:
+      - ./output:/app/output
+      - ./logs:/app/logs
+    restart: unless-stopped
+
+  drone_1:
+    build: .
+    command: ["python3", "drones/drone_1/run.py"]
+    network_mode: host
+    volumes:
+      - ./logs:/app/logs
+    depends_on:
+      - gcs
+    restart: unless-stopped
+
+  drone_2:
+    build: .
+    command: ["python3", "drones/drone_2/run.py"]
+    network_mode: host
+    volumes:
+      - ./logs:/app/logs
+    depends_on:
+      - gcs
+    restart: unless-stopped
+
+  drone_3:
+    build: .
+    command: ["python3", "drones/drone_3/run.py"]
+    network_mode: host
+    volumes:
+      - ./logs:/app/logs
+    depends_on:
+      - gcs
+    restart: unless-stopped
+
+  drone_4:
+    build: .
+    command: ["python3", "drones/drone_4/run.py"]
+    network_mode: host
+    volumes:
+      - ./logs:/app/logs
+    depends_on:
+      - gcs
+    restart: unless-stopped
+
+  drone_5:
+    build: .
+    command: ["python3", "drones/drone_5/run.py"]
+    network_mode: host
+    volumes:
+      - ./logs:/app/logs
+    depends_on:
+      - gcs
+    restart: unless-stopped

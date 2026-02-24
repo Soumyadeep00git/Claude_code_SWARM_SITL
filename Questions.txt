@@ -1,0 +1,5 @@
+SWARM architecture implementation
+1. Separate python code -> formation; send/receive data; AP management;
+2. P2P connection -> Socket management
+3. Containerize
+4. Swarm behavior 

@@ -22,6 +22,7 @@ from config import (
     NUM_DRONES, GCS_PORT, GCS_HOST,
     AGENT_BASE_PORT, AGENT_PORT_STEP,
     COMMS_TIMEOUT_S, WEB_GCS_PORT,
+    DOCKER_MODE, MESH_SIM_ENABLED,
 )
 from comms.protocol import make_msg, parse_msg
 from comms.udp_node import UDPNode
@@ -30,6 +31,8 @@ from gcs.command_dispatcher import CommandDispatcher
 from gcs.flight_logger import FlightLogger
 from gcs.drone_manager import DroneManager
 from gcs.geo_utils import ned_to_gps, centroid
+from gcs.diagnostics import run_all_tests, run_single_test
+from gcs.network_viz import NetworkAggregator
 
 log = logging.getLogger(__name__)
 
@@ -52,13 +55,17 @@ class WebGCS:
         # Core components
         self.udp = UDPNode(GCS_PORT)
         self.collector = StateCollector(max_drones)
-        self.dispatcher = CommandDispatcher(self.udp, max_drones, self.collector)
+        self.dispatcher = CommandDispatcher(self.udp, max_drones, self.collector,
+                                               known_drones=self.known_drones)
         self.logger = FlightLogger(num_drones=max_drones, output_dir=output_dir)
         self.drone_mgr = DroneManager(max_drones)
 
         # Failure injection state
         self.blocked_drones: set[int] = set()
         self._block_lock = threading.Lock()
+
+        # Network mesh aggregator
+        self.network_agg = NetworkAggregator()
 
         # Alert buffer (UDP thread -> broadcast thread)
         self._alert_buffer: list[dict] = []
@@ -140,6 +147,17 @@ class WebGCS:
                 self.logger.log_command("WAYPOINT", data)
             self._emit_log("INFO",
                            f"Waypoint D{did} -> ({lat:.6f}, {lon:.6f}, {alt:.1f})")
+
+        @sio.on("cmd_swarm_waypoint")
+        def on_swarm_waypoint(data):
+            lat = float(data["lat"])
+            lon = float(data["lon"])
+            alt = float(data.get("alt", 10.0))
+            self.dispatcher.send_swarm_waypoint(lat, lon, alt)
+            with self._logger_lock:
+                self.logger.log_command("SWARM_WAYPOINT", data)
+            self._emit_log("INFO",
+                           f"Swarm waypoint -> ({lat:.6f}, {lon:.6f}, {alt:.1f})")
 
         # ── Per-drone commands ──
 
@@ -234,10 +252,67 @@ class WebGCS:
                 self.blocked_drones.discard(did)
             self._emit_log("INFO", f"Comms RESTORED for drone {did}")
 
+        # ── Diagnostics ──
+
+        @sio.on("run_all_tests")
+        def on_run_all_tests(data):
+            self._emit_log("INFO", "Running all diagnostics...")
+            sio.start_background_task(self._run_diagnostics_all)
+
+        @sio.on("run_test")
+        def on_run_test(data):
+            test_id = data.get("test_id", "")
+            self._emit_log("INFO", f"Running test: {test_id}")
+            sio.start_background_task(self._run_diagnostics_single, test_id)
+
+        # ── Mesh network commands ──
+
+        @sio.on("cmd_set_isolation_radius")
+        def on_set_isolation_radius(data):
+            radius = float(data.get("radius_m", 5.0))
+            config_data = {"isolation_radius_m": radius}
+            with self._known_lock:
+                peers = set(self.known_drones)
+            for i in peers:
+                port = AGENT_BASE_PORT + i * AGENT_PORT_STEP
+                self.udp.send(
+                    make_msg("SAFETY_CONFIG_CMD", 0, config_data),
+                    GCS_HOST, port)
+            self._emit_log("INFO", f"Isolation radius set to {radius:.1f}m")
+
+        @sio.on("cmd_set_mesh_range")
+        def on_set_mesh_range(data):
+            range_m = float(data.get("range_m", 100))
+            config_data = {"range_m": range_m}
+            with self._known_lock:
+                peers = set(self.known_drones)
+            for i in peers:
+                port = AGENT_BASE_PORT + i * AGENT_PORT_STEP
+                self.udp.send(
+                    make_msg("MESH_CONFIG_CMD", 0, config_data),
+                    GCS_HOST, port)
+            self._emit_log("INFO", f"Mesh range set to {range_m:.0f}m")
+
     # ── Background threads ────────────────────────────────
 
     def _staggered_launch_all(self):
-        """Launch all drones with 2s stagger."""
+        """Launch all drones with 2s stagger.
+        In Docker mode, drones already run as containers — just register them."""
+        if DOCKER_MODE:
+            self._emit_log("INFO",
+                           "Docker mode: drones managed by docker-compose, "
+                           "registering as known...")
+            for i in range(1, self.max_drones + 1):
+                with self._known_lock:
+                    self.known_drones.add(i)
+                self.socketio.emit("drone_launched", {
+                    "drone_id": i, "pid": 0, "ts": time.time(),
+                })
+            self._emit_log("INFO",
+                           f"Registered {self.max_drones} drones "
+                           "(auto-discovered via STATE_REPORT)")
+            return
+
         for i in range(1, self.max_drones + 1):
             if not self.running:
                 break
@@ -254,29 +329,76 @@ class WebGCS:
             if i < self.max_drones:
                 time.sleep(2)
 
+    def _run_diagnostics_all(self):
+        """Run all diagnostic tests in background and emit results."""
+        try:
+            results = run_all_tests(collector=self.collector)
+            self.socketio.emit("test_results", {"results": results})
+            passed = sum(1 for r in results if r["status"] == "pass")
+            self._emit_log("INFO",
+                           f"Diagnostics complete: {passed}/{len(results)} passed")
+        except Exception as e:
+            self.socketio.emit("test_results", {"results": [], "error": str(e)})
+            self._emit_log("ERROR", f"Diagnostics error: {e}")
+
+    def _run_diagnostics_single(self, test_id: str):
+        """Run one diagnostic test in background and emit result."""
+        try:
+            result = run_single_test(test_id, collector=self.collector)
+            self.socketio.emit("test_result", {"result": result})
+            self._emit_log("INFO",
+                f"Test '{result.get('test_name', test_id)}': "
+                f"{result['status'].upper()} ({result.get('duration_ms', 0):.0f}ms)")
+        except Exception as e:
+            self.socketio.emit("test_result", {
+                "result": {"test_id": test_id, "status": "error",
+                           "details": {"error": str(e)}}
+            })
+            self._emit_log("ERROR", f"Test error: {e}")
+
     def _udp_loop(self):
-        """Receive drone states, relay to peers, update collector."""
+        """Receive drone states, relay to peers, update collector.
+        Exception-safe: any per-message error is logged and skipped,
+        keeping the relay alive for all other drones."""
         while self.running:
-            for raw, addr in self.udp.recv_all():
-                msg = parse_msg(raw)
-                if msg is None:
-                    continue
+            try:
+                for raw, addr in self.udp.recv_all():
+                    try:
+                        msg = parse_msg(raw)
+                        if msg is None:
+                            continue
 
-                if msg["type"] == "STATE_REPORT":
-                    src = msg["data"].get("drone_id", msg["src"])
-                    # Auto-discover drones
-                    with self._known_lock:
-                        self.known_drones.add(src)
-                    self.collector.update(src, msg["data"],
-                                          msg.get("ts", time.time()))
-                    self._relay_to_peers(msg, src)
-                    with self._logger_lock:
-                        self.logger.log_state(src, msg["data"])
+                        if msg["type"] == "STATE_REPORT":
+                            src = msg["data"].get("drone_id", msg["src"])
+                            # Auto-discover drones
+                            with self._known_lock:
+                                self.known_drones.add(src)
+                            # Extract mesh stats before storing
+                            mesh_stats = msg["data"].pop("mesh_stats", None)
+                            self.network_agg.update(src, mesh_stats)
+                            self.collector.update(src, msg["data"],
+                                                  msg.get("ts", time.time()))
+                            self._relay_to_peers(msg, src)
+                            with self._logger_lock:
+                                self.logger.log_state(src, msg["data"])
 
-                elif msg["type"] == "ALERT":
-                    self._handle_alert(msg)
-                    with self._logger_lock:
-                        self.logger.log_alert(msg["src"], msg["data"])
+                        elif msg["type"] == "PROXIMITY_ALERT":
+                            self.socketio.emit("proximity_alert", {
+                                "drone_id": msg["src"],
+                                **msg["data"],
+                                "ts": time.time(),
+                            })
+
+                        elif msg["type"] == "ALERT":
+                            self._handle_alert(msg)
+                            with self._logger_lock:
+                                self.logger.log_alert(msg["src"], msg["data"])
+
+                    except Exception as e:
+                        log.warning("Error processing UDP message from %s: %s", addr, e)
+
+            except Exception as e:
+                log.error("UDP loop outer error: %s", e, exc_info=True)
 
             time.sleep(0.01)
 
@@ -310,11 +432,18 @@ class WebGCS:
             }
             self.socketio.emit("state_update", payload)
 
+            # Network topology update (mesh sim)
+            net_payload = self.network_agg.get_topology_payload()
+            if net_payload["links"] or net_payload["nodes"]:
+                self.socketio.emit("network_update", net_payload)
+
             for alert in alerts:
                 self.socketio.emit("alert", alert)
 
     def _relay_to_peers(self, msg: dict, source_id: int):
-        """Relay STATE_REPORT to peer drones, respecting comms blocks."""
+        """Relay STATE_REPORT to peer drones, respecting comms blocks.
+        With P2P mesh enabled, this relay is redundant — peers get direct
+        PEER_HEARTBEATs. Kept active for resilience."""
         relay_msg = dict(msg)
         relay_msg["src"] = 0  # Mark as GCS so agents count as heartbeat
         raw = json.dumps(relay_msg).encode("utf-8")
@@ -371,6 +500,8 @@ class WebGCS:
 
     def run(self):
         """Start background threads and run Flask-SocketIO server."""
+        if DOCKER_MODE:
+            log.info("Docker mode detected — drones managed by docker-compose")
         self.socketio.start_background_task(self._udp_loop)
         self.socketio.start_background_task(self._broadcast_loop)
 

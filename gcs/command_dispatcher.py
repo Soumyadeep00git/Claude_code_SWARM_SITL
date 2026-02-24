@@ -14,10 +14,12 @@ log = logging.getLogger(__name__)
 class CommandDispatcher:
     """Sends commands to drone agents over UDP."""
 
-    def __init__(self, udp: UDPNode, num_drones: int, state_collector=None):
+    def __init__(self, udp: UDPNode, num_drones: int, state_collector=None,
+                 known_drones: set[int] | None = None):
         self.udp = udp
         self.num_drones = num_drones
         self.collector = state_collector
+        self._known_drones = known_drones  # Shared set from WebGCS
 
     def _drone_port(self, drone_id: int) -> int:
         return AGENT_BASE_PORT + drone_id * AGENT_PORT_STEP
@@ -28,7 +30,12 @@ class CommandDispatcher:
 
     def _send_to_all(self, msg_type: str, data: dict,
                      drone_ids: set[int] | None = None):
-        targets = drone_ids or set(range(1, self.num_drones + 1))
+        if drone_ids:
+            targets = drone_ids
+        elif self._known_drones:
+            targets = set(self._known_drones)  # Copy to avoid mutation
+        else:
+            targets = set(range(1, self.num_drones + 1))
         for i in targets:
             self._send_to(i, msg_type, data)
 
@@ -90,3 +97,9 @@ class CommandDispatcher:
         }
         log.info("CMD: formation %s heading=%.0f spacing=%.1f", shape, heading_deg, spacing_m)
         self._send_to_all("FORMATION_CMD", data)
+
+    def send_swarm_waypoint(self, lat: float, lon: float, alt: float):
+        """Move the entire swarm to a new position, maintaining current formation."""
+        data = {"ref_lat": lat, "ref_lon": lon, "ref_alt": alt}
+        log.info("CMD: swarm waypoint -> (%.6f, %.6f, %.1f)", lat, lon, alt)
+        self._send_to_all("SWARM_WAYPOINT_CMD", data)
