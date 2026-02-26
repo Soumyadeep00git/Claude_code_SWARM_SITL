@@ -250,15 +250,17 @@ def main():
         # PHASE 4: Formation — V shape
         # ═══════════════════════════════════════════════════
         log.info("═══ Phase 4: Formation V ═══")
-        leader_pos = collector.get_leader_position()
-        if leader_pos:
-            ref_lat, ref_lon, ref_alt = leader_pos
+        centroid = collector.get_centroid()
+        if centroid:
+            ref_lat, ref_lon, ref_alt = centroid
         else:
             ref_lat, ref_lon, ref_alt = -35.3632620, 149.1652370, target_alt
+        valid_ids = collector.get_valid_drone_ids()
+        leader_id = min(valid_ids) if valid_ids else 1
 
         formation_data = {
             "formation": "V",
-            "leader_id": 1,
+            "leader_id": leader_id,
             "ref_lat": ref_lat,
             "ref_lon": ref_lon,
             "ref_alt": ref_alt,
@@ -275,13 +277,15 @@ def main():
         # PHASE 5: Formation — LINE
         # ═══════════════════════════════════════════════════
         log.info("═══ Phase 5: Formation LINE ═══")
-        leader_pos = collector.get_leader_position()
-        if leader_pos:
-            ref_lat, ref_lon, ref_alt = leader_pos
+        centroid = collector.get_centroid()
+        if centroid:
+            ref_lat, ref_lon, ref_alt = centroid
+        valid_ids = collector.get_valid_drone_ids()
+        leader_id = min(valid_ids) if valid_ids else leader_id
 
         formation_data = {
             "formation": "LINE",
-            "leader_id": 1,
+            "leader_id": leader_id,
             "ref_lat": ref_lat,
             "ref_lon": ref_lon,
             "ref_alt": ref_alt,
@@ -298,13 +302,15 @@ def main():
         # PHASE 6: Formation — DIAMOND
         # ═══════════════════════════════════════════════════
         log.info("═══ Phase 6: Formation DIAMOND ═══")
-        leader_pos = collector.get_leader_position()
-        if leader_pos:
-            ref_lat, ref_lon, ref_alt = leader_pos
+        centroid = collector.get_centroid()
+        if centroid:
+            ref_lat, ref_lon, ref_alt = centroid
+        valid_ids = collector.get_valid_drone_ids()
+        leader_id = min(valid_ids) if valid_ids else leader_id
 
         formation_data = {
             "formation": "DIAMOND",
-            "leader_id": 1,
+            "leader_id": leader_id,
             "ref_lat": ref_lat,
             "ref_lon": ref_lon,
             "ref_alt": ref_alt,

@@ -78,24 +78,31 @@ class CommandDispatcher:
         })
 
     def set_formation(self, shape: str, heading_deg: float, spacing_m: float):
-        """Command all drones to form a specific formation."""
-        # Use leader's current position as reference
+        """Command all drones to form a specific formation.
+
+        Reference point = centroid of all drones with valid GPS.
+        Leader = lowest drone ID with valid GPS (deterministic, no hardcode).
+        """
         ref_lat, ref_lon, ref_alt = 0.0, 0.0, 10.0
+        leader_id = 0
         if self.collector:
-            leader_pos = self.collector.get_leader_position()
-            if leader_pos:
-                ref_lat, ref_lon, ref_alt = leader_pos
+            centroid = self.collector.get_centroid()
+            if centroid:
+                ref_lat, ref_lon, ref_alt = centroid
+            valid_ids = self.collector.get_valid_drone_ids()
+            leader_id = min(valid_ids) if valid_ids else 0
 
         data = {
             "formation": shape.upper(),
-            "leader_id": 1,
+            "leader_id": leader_id,
             "ref_lat": ref_lat,
             "ref_lon": ref_lon,
             "ref_alt": ref_alt,
             "heading_deg": heading_deg,
             "spacing_m": spacing_m,
         }
-        log.info("CMD: formation %s heading=%.0f spacing=%.1f", shape, heading_deg, spacing_m)
+        log.info("CMD: formation %s heading=%.0f spacing=%.1f ref=centroid leader=%d",
+                 shape, heading_deg, spacing_m, leader_id)
         self._send_to_all("FORMATION_CMD", data)
 
     def send_swarm_waypoint(self, lat: float, lon: float, alt: float):

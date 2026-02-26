@@ -22,39 +22,47 @@ class NetworkAggregator:
         if mesh_stats:
             self._mesh_data[drone_id] = mesh_stats
 
-    def get_topology_payload(self) -> dict:
+    def get_topology_payload(self, stale_ids: list[int] | None = None) -> dict:
         """Build frontend-ready network topology payload.
+        Excludes stale drones from link/routing data (they have no comms).
 
         Returns:
             {
                 "links": [{src, dst, quality, distance_m}, ...],
-                "nodes": {drone_id: {sent, delivered, dropped, forwarded}, ...},
+                "nodes": {drone_id: {sent, delivered, dropped, forwarded, stale}, ...},
                 "routing_tables": {drone_id: {dest: {next_hop, hops, metric}}, ...},
             }
         """
+        stale_set = set(stale_ids) if stale_ids else set()
         links = []
         seen_links: set[tuple[int, int]] = set()
         nodes: dict[int, dict] = {}
         routing_tables: dict[int, dict] = {}
 
         for did, stats in self._mesh_data.items():
-            # Link qualities
-            link_qualities = stats.get("link_qualities", {})
-            for peer_id_str, lq in link_qualities.items():
-                pid = int(peer_id_str)
-                key = (min(did, pid), max(did, pid))
-                if key not in seen_links:
-                    seen_links.add(key)
-                    links.append({
-                        "src": key[0],
-                        "dst": key[1],
-                        "quality": lq.get("quality", 0),
-                        "distance_m": lq.get("distance_m", 0),
-                    })
+            is_stale = did in stale_set
 
-            # Per-node packet stats
+            # Link qualities — skip links involving stale drones
+            if not is_stale:
+                link_qualities = stats.get("link_qualities", {})
+                for peer_id_str, lq in link_qualities.items():
+                    pid = int(peer_id_str)
+                    if pid in stale_set:
+                        continue
+                    key = (min(did, pid), max(did, pid))
+                    if key not in seen_links:
+                        seen_links.add(key)
+                        links.append({
+                            "src": key[0],
+                            "dst": key[1],
+                            "quality": lq.get("quality", 0),
+                            "distance_m": lq.get("distance_m", 0),
+                        })
+
+            # Per-node packet stats (always include, mark stale)
             link_stats = stats.get("link_stats", {})
-            node_stats = {"sent": 0, "delivered": 0, "dropped": 0, "forwarded": 0}
+            node_stats = {"sent": 0, "delivered": 0, "dropped": 0,
+                          "forwarded": 0, "stale": is_stale}
             for _pid_str, st in link_stats.items():
                 node_stats["sent"] += st.get("sent", 0)
                 node_stats["delivered"] += st.get("delivered", 0)
@@ -62,10 +70,11 @@ class NetworkAggregator:
             node_stats["forwarded"] = stats.get("forwarded", 0)
             nodes[did] = node_stats
 
-            # Routing table
-            rt = stats.get("routing_table", {})
-            if rt:
-                routing_tables[did] = rt
+            # Routing table — skip for stale drones
+            if not is_stale:
+                rt = stats.get("routing_table", {})
+                if rt:
+                    routing_tables[did] = rt
 
         return {
             "links": links,

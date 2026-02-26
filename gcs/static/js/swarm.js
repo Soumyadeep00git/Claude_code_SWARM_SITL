@@ -86,6 +86,12 @@ function createDroneIcon(id, heading, isLeader, state, isStale, isBlocked, color
     if (isStale) extra += `<line x1="${H-8}" y1="${H-8}" x2="${H+8}" y2="${H+8}" stroke="#ef4444" stroke-width="3"/><line x1="${H+8}" y1="${H-8}" x2="${H-8}" y2="${H+8}" stroke="#ef4444" stroke-width="3"/>`;
     if (isLeader) extra += `<text x="${H}" y="${H-18}" text-anchor="middle" fill="#fbbf24" font-size="14" font-weight="bold">\u2605</text>`;
     if (fs && (!state || state === "NOMINAL")) extra += `<text x="${H}" y="${H+30}" text-anchor="middle" fill="#ef4444" font-size="8" font-weight="bold">FS!</text>`;
+    // RL mode badge
+    const droneRLState = latestState && latestState.drones && latestState.drones[String(id)];
+    if (droneRLState && droneRLState.rl_mode) {
+        extra += `<rect x="${H-10}" y="${H+14}" width="20" height="10" rx="2" fill="rgba(139,92,246,0.85)"/>`;
+        extra += `<text x="${H}" y="${H+22}" text-anchor="middle" fill="#fff" font-size="7" font-weight="bold">RL</text>`;
+    }
 
     const op = isStale ? 0.3 : 1.0;
     const svg = `<svg width="${S}" height="${S}" xmlns="http://www.w3.org/2000/svg" style="opacity:${op};filter:drop-shadow(0 2px 4px rgba(0,0,0,.6))">
@@ -148,7 +154,8 @@ function updateMap(data) {
         // Icon caching
         const hb = Math.round((s.heading || 0) / 5) * 5;
         const pa = proxAlertFlash[nid] && proxAlertFlash[nid] > Date.now() ? 1 : 0;
-        const key = `${nid}_${hb}_${leader}_${st}_${stale}_${blocked}_${(s.alt||0).toFixed(0)}_${s.failsafe_active}_${pa}`;
+        const rl = s.rl_mode ? 1 : 0;
+        const key = `${nid}_${hb}_${leader}_${st}_${stale}_${blocked}_${(s.alt||0).toFixed(0)}_${s.failsafe_active}_${pa}_${rl}`;
 
         if (droneMarkers[nid]) {
             droneMarkers[nid].setLatLng(ll);
@@ -278,13 +285,17 @@ socket.on("state_update", (data) => {
     updateElapsed(data.elapsed_s);
     updateStatusTable(data);
     renderDroneGrid();
+    renderRLGrid();
     updateDroneSelects();
     updateMap(data);
 });
 
 socket.on("alert", (d) => addLog("ALERT", `D${d.drone_id} [${d.code}] ${d.message} -> ${d.action_taken}`));
 socket.on("log_event", (d) => addLog(d.level, d.message));
-socket.on("drone_launched", (d) => addLog("INFO", `Drone ${d.drone_id} launched (PID ${d.pid})`));
+socket.on("drone_launched", (d) => {
+    const pidStr = (d.pid === 0 || d.pid === "docker") ? "docker" : `PID ${d.pid}`;
+    addLog("INFO", `Drone ${d.drone_id} launched (${pidStr})`);
+});
 socket.on("drone_killed", (d) => addLog("WARN", `Drone ${d.drone_id} killed`));
 
 socket.on("proximity_alert", (d) => {
@@ -304,6 +315,23 @@ socket.on("proximity_alert", (d) => {
 
 function renderDroneGrid() {
     const grid = document.getElementById("drone-mgmt-grid");
+    const isRunning = (st) => st === "running";
+    const isDocker = (st) => st === "docker";
+
+    // Update "Launch All" / "Kill All" buttons based on overall fleet status
+    let allRunning = true, anyRunning = false;
+    let dockerMode = false;
+    for (let i = 1; i <= MAX_DRONES; i++) {
+        const st = processStatus[i] || "unmanaged";
+        if (isDocker(st)) dockerMode = true;
+        if (isRunning(st)) anyRunning = true; else allRunning = false;
+    }
+    const btnLA = document.getElementById("btn-launch-all");
+    const btnKA = document.getElementById("btn-kill-all");
+    // In Docker mode, Launch All registers drones (always available)
+    if (btnLA) btnLA.disabled = !dockerMode && allRunning;
+    if (btnKA) btnKA.disabled = dockerMode || !anyRunning;
+
     if (grid.dataset.count === String(MAX_DRONES)) {
         for (let i = 1; i <= MAX_DRONES; i++) {
             const dot = document.getElementById(`mgmt-dot-${i}`);
@@ -313,8 +341,8 @@ function renderDroneGrid() {
             const bK = document.getElementById(`mgmt-kill-${i}`);
             const bT = document.getElementById(`mgmt-takeoff-${i}`);
             const bD = document.getElementById(`mgmt-land-${i}`);
-            if (bL) bL.disabled = st === "running";
-            if (bK) bK.disabled = st !== "running";
+            if (bL) bL.disabled = isRunning(st);
+            if (bK) bK.disabled = !isRunning(st) || isDocker(st);
             const has = latestState && latestState.drones && latestState.drones[String(i)];
             if (bT) bT.disabled = !has;
             if (bD) bD.disabled = !has;
@@ -331,8 +359,8 @@ function renderDroneGrid() {
         row.innerHTML = `
             <span class="status-dot status-${st}" id="mgmt-dot-${i}" title="${st}"></span>
             <span style="color:${c};font-weight:600;width:26px;font-family:var(--font-mono);font-size:11px">D${i}</span>
-            <button class="btn btn-success btn-sm" id="mgmt-launch-${i}" ${st==="running"?"disabled":""}>Launch</button>
-            <button class="btn btn-danger btn-sm" id="mgmt-kill-${i}" ${st!=="running"?"disabled":""}>Kill</button>
+            <button class="btn btn-success btn-sm" id="mgmt-launch-${i}" ${isRunning(st)?"disabled":""}>Launch</button>
+            <button class="btn btn-danger btn-sm" id="mgmt-kill-${i}" ${(!isRunning(st)||isDocker(st))?"disabled":""}>Kill</button>
             <button class="btn btn-primary btn-sm" id="mgmt-takeoff-${i}" disabled>Up</button>
             <button class="btn btn-sm" id="mgmt-land-${i}" disabled>Land</button>`;
         grid.appendChild(row);
@@ -340,6 +368,41 @@ function renderDroneGrid() {
         document.getElementById(`mgmt-kill-${i}`).onclick = () => { if (confirm(`Kill drone ${i}?`)) socket.emit("cmd_kill_drone", { drone_id: i }); };
         document.getElementById(`mgmt-takeoff-${i}`).onclick = () => socket.emit("cmd_takeoff_drone", { drone_id: i, alt: parseFloat(document.getElementById("takeoff-alt").value) || 10 });
         document.getElementById(`mgmt-land-${i}`).onclick = () => socket.emit("cmd_land_drone", { drone_id: i });
+    }
+}
+
+// ── RL Mode Grid ──────────────────────────────────────
+
+function renderRLGrid() {
+    const grid = document.getElementById("rl-drone-grid");
+    if (!grid) return;
+    if (grid.dataset.count === String(MAX_DRONES)) {
+        for (let i = 1; i <= MAX_DRONES; i++) {
+            const badge = document.getElementById(`rl-badge-${i}`);
+            if (!badge) continue;
+            const s = latestState && latestState.drones && latestState.drones[String(i)];
+            const rlOn = s && s.rl_mode;
+            badge.className = `rl-badge ${rlOn ? "rl-on" : "rl-off"}`;
+            badge.textContent = rlOn ? "RL" : "--";
+        }
+        return;
+    }
+    grid.innerHTML = "";
+    grid.dataset.count = String(MAX_DRONES);
+    for (let i = 1; i <= MAX_DRONES; i++) {
+        const c = COLORS[(i - 1) % COLORS.length];
+        const row = document.createElement("div");
+        row.className = "rl-row";
+        row.innerHTML = `
+            <span style="color:${c};font-weight:600;font-family:var(--font-mono);font-size:10px;width:24px">D${i}</span>
+            <span id="rl-badge-${i}" class="rl-badge rl-off">--</span>
+            <button class="btn btn-rl btn-sm" id="rl-on-${i}">ON</button>
+            <button class="btn btn-sm" id="rl-off-${i}">OFF</button>`;
+        grid.appendChild(row);
+        document.getElementById(`rl-on-${i}`).onclick = () =>
+            socket.emit("cmd_rl_mode", { enable: true, target_id: i });
+        document.getElementById(`rl-off-${i}`).onclick = () =>
+            socket.emit("cmd_rl_mode", { enable: false, target_id: i });
     }
 }
 
@@ -375,24 +438,33 @@ function stateClass(s) {
 
 function updateStatusTable(data) {
     statusBody.innerHTML = "";
+    const staleSet = new Set(data.stale);
     const entries = Object.entries(data.drones).sort((a, b) => parseInt(a[0]) - parseInt(b[0]));
     for (const [id, s] of entries) {
-        const blocked = data.blocked.includes(parseInt(id));
+        const nid = parseInt(id);
+        const blocked = data.blocked.includes(nid);
+        const stale = staleSet.has(nid);
         const tr = document.createElement("tr");
-        if (s.failsafe_active) tr.className = "failsafe-row";
+        if (stale) tr.className = "stale-row";
+        else if (s.failsafe_active) tr.className = "failsafe-row";
         if (blocked) tr.className += " blocked-row";
-        const lid = s.leader_id || 1;
-        const c = COLORS[(parseInt(id) - 1) % COLORS.length];
+        const lid = s.leader_id || 0;
+        const c = COLORS[(nid - 1) % COLORS.length];
+        const rlOn = s.rl_mode || false;
+        // GCS-detected stale overrides drone's self-reported state
+        const displayState = stale ? "COMMS_LOST" : (s.swarm_state || "NOMINAL");
+        const displayStateClass = stale ? "state-comms-lost" : stateClass(s.swarm_state);
         tr.innerHTML = `
-            <td style="color:${c};font-weight:600">D${id}</td>
-            <td>${s.mode || "?"}</td>
+            <td style="color:${c};font-weight:600">${stale ? "\u26A0 " : ""}D${id}</td>
+            <td>${stale ? "-" : (s.mode || "?")}</td>
             <td>${(s.alt || 0).toFixed(1)}</td>
             <td>${s.battery_pct >= 0 ? s.battery_pct + "%" : "?"}</td>
             <td>${s.armed ? "YES" : "-"}</td>
             <td style="color:${s.failsafe_active ? "var(--red)" : "var(--text-muted)"}">${s.failsafe_active ? "FS" : "-"}</td>
-            <td class="${stateClass(s.swarm_state)}">${s.swarm_state || "NOMINAL"}</td>
-            <td>${parseInt(id) === lid ? "\u2605" : ""} D${lid}</td>
-            <td>${s.alive_count || 0}</td>`;
+            <td class="${displayStateClass}">${displayState}</td>
+            <td>${nid === lid ? "\u2605" : ""} ${lid > 0 ? "D" + lid : "-"}</td>
+            <td>${s.alive_count || 0}</td>
+            <td class="${rlOn ? "rl-active" : ""}">${rlOn ? "RL" : "-"}</td>`;
         statusBody.appendChild(tr);
     }
 }
@@ -489,6 +561,8 @@ document.getElementById("btn-goto-ned").onclick = () => {
 };
 
 document.getElementById("btn-clear-log").onclick = () => { logScroll.innerHTML = ""; addLog("INFO", "Log cleared"); };
+document.getElementById("btn-rl-all-on").onclick = () => socket.emit("cmd_rl_mode", { enable: true, target_id: 0 });
+document.getElementById("btn-rl-all-off").onclick = () => socket.emit("cmd_rl_mode", { enable: false, target_id: 0 });
 
 document.getElementById("btn-auto-center").onclick = () => {
     autoCenter = !autoCenter;

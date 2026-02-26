@@ -36,12 +36,22 @@ class StateCollector:
                 stale.append(did)
         return stale
 
-    def get_leader_position(self, leader_id: int = 1) -> tuple[float, float, float] | None:
-        """Get leader's current position for formation reference."""
-        s = self.states.get(leader_id)
-        if s:
-            return (s["lat"], s["lon"], s["alt"])
-        return None
+    def get_centroid(self) -> tuple[float, float, float] | None:
+        """Compute GPS centroid of all drones with valid positions."""
+        valid = [(s["lat"], s["lon"], s.get("alt", 10.0))
+                 for s in self.states.values()
+                 if s.get("lat", 0) != 0.0 or s.get("lon", 0) != 0.0]
+        if not valid:
+            return None
+        avg_lat = sum(v[0] for v in valid) / len(valid)
+        avg_lon = sum(v[1] for v in valid) / len(valid)
+        avg_alt = sum(v[2] for v in valid) / len(valid)
+        return (avg_lat, avg_lon, avg_alt)
+
+    def get_valid_drone_ids(self) -> list[int]:
+        """Return drone IDs that have valid (non-zero) GPS."""
+        return [did for did, s in self.states.items()
+                if s.get("lat", 0) != 0.0 or s.get("lon", 0) != 0.0]
 
     def print_summary(self):
         """Print a one-line summary for each drone."""

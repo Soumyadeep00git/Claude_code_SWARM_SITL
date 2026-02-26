@@ -84,11 +84,12 @@
             const loss = s.sent > 0 ? ((s.dropped / s.sent) * 100).toFixed(1) : "0.0";
             const lossClass = parseFloat(loss) > 10 ? "net-loss-high" :
                               parseFloat(loss) > 2 ? "net-loss-med" : "net-loss-ok";
-            html += `<tr>
-                <td style="color:${color};font-weight:600">D${did}</td>
+            const rowClass = s.stale ? ' class="stale-row"' : '';
+            html += `<tr${rowClass}>
+                <td style="color:${color};font-weight:600">${s.stale ? "\u26A0 " : ""}D${did}</td>
                 <td>${s.sent}</td><td>${s.delivered}</td>
                 <td>${s.dropped}</td><td>${s.forwarded}</td>
-                <td class="${lossClass}">${loss}%</td>
+                <td class="${lossClass}">${s.stale ? "LOST" : loss + "%"}</td>
             </tr>`;
         }
         html += '</tbody></table>';

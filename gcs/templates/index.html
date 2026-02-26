@@ -171,6 +171,13 @@
                     <input id="ned-alt" type="number" value="10" min="1" max="100" step="1" style="width:46px">
                     <button id="btn-goto-ned" class="btn btn-primary btn-sm">Go</button>
                 </div>
+
+                <div class="sub-label">RL Mode</div>
+                <div class="cmd-row">
+                    <button id="btn-rl-all-on" class="btn btn-rl btn-sm">All ON</button>
+                    <button id="btn-rl-all-off" class="btn btn-sm">All OFF</button>
+                </div>
+                <div id="rl-drone-grid" class="rl-grid"></div>
             </div>
         </div>
     </div>
@@ -189,7 +196,7 @@
                         <table id="status-table">
                             <thead><tr>
                                 <th>ID</th><th>Mode</th><th>Alt</th><th>Batt</th>
-                                <th>Armed</th><th>FS</th><th>State</th><th>Ldr</th><th>Peers</th>
+                                <th>Armed</th><th>FS</th><th>State</th><th>Ldr</th><th>Peers</th><th>RL</th>
                             </tr></thead>
                             <tbody id="status-body"></tbody>
                         </table>

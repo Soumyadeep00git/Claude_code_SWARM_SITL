@@ -31,7 +31,7 @@ from comms.protocol import make_msg, parse_msg
 from comms.udp_node import UDPNode
 from mavlink_layer.drone_connection import DroneConnection
 from drone_agent.state import DroneState, PeerTable
-from drone_agent.local_planner import LocalPlanner
+from drone_agent.local_planner import LocalPlanner, RL_MODE
 from drone_agent.global_planner import GlobalPlanner
 from drone_agent.failsafe import FailsafeManager, SwarmState
 from drone_agent.geo import gps_to_ned_2d
@@ -171,6 +171,26 @@ class DroneAgent:
                         goal_ned, path_ned, peer_ned_arr,
                         ref_lat, ref_lon, ref_alt,
                         peer_velocities_ned=peer_vel_arr)
+
+                elif self.local_planner._rl_enabled and has_gps:
+                    # Feed NED state for RL mode (no formation active)
+                    ref_lat = self.global_planner.ref_lat if self.global_planner.ref_lat != 0.0 else self.state.lat
+                    ref_lon = self.global_planner.ref_lon if self.global_planner.ref_lon != 0.0 else self.state.lon
+                    ref_alt = self.global_planner.ref_alt if self.global_planner.ref_alt != 0.0 else self.state.alt
+
+                    self.local_planner.update_own_state_ned(
+                        self.state.lat, self.state.lon, self.state.alt,
+                        self.state.vx, self.state.vy, self.state.vz,
+                        ref_lat, ref_lon, ref_alt)
+
+                    peer_ned = []
+                    for pid, plat, plon, palt, pvx, pvy, pvz in self.peers.get_all_states():
+                        if pid == self.drone_id or (plat == 0.0 and plon == 0.0):
+                            continue
+                        pn, pe = gps_to_ned_2d(plat, plon, ref_lat, ref_lon)
+                        peer_ned.append([pn, pe, -(palt - ref_alt)])
+                    self.local_planner._peer_positions_ned = (
+                        np.array(peer_ned) if peer_ned else np.empty((0, 3)))
 
                 self.local_planner.tick(
                     armed=self.state.armed,
@@ -365,6 +385,19 @@ class DroneAgent:
             self.local_planner.set_isolation_radius(radius)
             self.failsafe.set_isolation_radius(radius)
             log.info("Drone %d: isolation radius updated to %.1fm", my_id, radius)
+
+        elif t == "RL_MODE_CMD":
+            if d.get("target_id", 0) in (0, my_id):
+                enable = d.get("enable", False)
+                if enable:
+                    self.local_planner.enable_rl_mode()
+                    self.state.rl_mode = True
+                    if "goal_ned" in d:
+                        goal = np.array(d["goal_ned"], dtype=np.float64)
+                        self.local_planner.set_rl_goal(goal)
+                else:
+                    self.local_planner.disable_rl_mode()
+                    self.state.rl_mode = False
 
     def _get_all_positions(self) -> dict[int, tuple[float, float]]:
         """Return {drone_id: (lat, lon)} for self and all known peers.

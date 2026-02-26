@@ -37,6 +37,7 @@ VELOCITY = "VELOCITY"
 LAND = "LAND"
 HOLD = "HOLD"
 FORMATION = "FORMATION"
+RL_MODE = "RL_MODE"
 
 # Waypoint PD gains
 KP_WP = 0.5
@@ -98,6 +99,11 @@ class LocalPlanner:
         # Maps alerting_drone_id -> {"expiry": float, "severity": "hard"|"soft",
         #                            "lat": float, "lon": float}
         self._active_alerts: dict[int, dict] = {}
+
+        # RL controller (lazy-initialized on first enable)
+        self._rl_controller = None  # RLController | None
+        self._rl_goal_ned = np.zeros(3, dtype=np.float64)
+        self._rl_enabled = False
 
     def set_isolation_radius(self, radius_m: float):
         """Update isolation radius (from SAFETY_CONFIG_CMD).
@@ -182,6 +188,28 @@ class LocalPlanner:
             repel_e += 1.5 * (de / dist)
 
         return repel_n, repel_e
+
+    def enable_rl_mode(self):
+        """Activate RL controller. Lazy-initializes on first call."""
+        if self._rl_controller is None:
+            from drone_agent.rl_controller import RLController
+            self._rl_controller = RLController()
+        self._rl_enabled = True
+        if self.task not in (TAKEOFF, LAND):
+            self.task = RL_MODE
+        log.info("Drone %d: RL mode ENABLED (onnx=%s)",
+                 self.conn.drone_id, self._rl_controller.is_onnx)
+
+    def disable_rl_mode(self):
+        """Deactivate RL controller, return to IDLE."""
+        self._rl_enabled = False
+        if self.task == RL_MODE:
+            self.task = IDLE
+        log.info("Drone %d: RL mode DISABLED", self.conn.drone_id)
+
+    def set_rl_goal(self, goal_ned):
+        """Set the goal position for RL controller (NED meters)."""
+        self._rl_goal_ned = np.asarray(goal_ned, dtype=np.float64)
 
     def update_peer_gps(self, own_lat: float, own_lon: float, own_alt: float,
                         peer_gps: list[tuple[float, float]]):
@@ -360,8 +388,10 @@ class LocalPlanner:
         else:
             self._peer_velocities_ned = np.empty((0, 3), dtype=np.float64)
 
-        # Switch to FORMATION state if not in a priority state
-        if self.task not in (TAKEOFF, LAND, HOLD):
+        # Switch to FORMATION state if not in a priority state.
+        # HOLD is NOT excluded: after proximity clears, formation must resume.
+        # (During EMERGENCY_PROXIMITY, failsafe blocks the planner entirely.)
+        if self.task not in (TAKEOFF, LAND):
             self.task = FORMATION
 
     def tick(self, armed: bool = False, mode: str = "", has_gps: bool = False,
@@ -385,6 +415,9 @@ class LocalPlanner:
         elif self.task == VELOCITY:
             vn, ve, vd = self._collision_overlay(self.vel_n, self.vel_e, self.vel_d)
             self.conn.send_velocity_ned(vn, ve, vd)
+
+        elif self.task == RL_MODE:
+            self._tick_rl()
 
         elif self.task == HOLD:
             vn, ve, vd = self._collision_overlay(0.0, 0.0, 0.0)
@@ -450,6 +483,23 @@ class LocalPlanner:
         self.conn.send_velocity_ned(float(vel_cmd[0]),
                                     float(vel_cmd[1]),
                                     float(vel_cmd[2]))
+
+    def _tick_rl(self):
+        """RL mode: build observation, run inference, apply collision overlay."""
+        if self._rl_controller is None:
+            return
+
+        obs = self._rl_controller.build_observation(
+            self._my_pos_ned,
+            self._my_vel_ned,
+            self._rl_goal_ned,
+            self._peer_positions_ned,
+        )
+
+        vel = self._rl_controller.infer(obs)
+        vn, ve, vd = float(vel[0]), float(vel[1]), float(vel[2])
+        vn, ve, vd = self._collision_overlay(vn, ve, vd)
+        self.conn.send_velocity_ned(vn, ve, vd)
 
     def _tick_takeoff(self, armed: bool, mode: str, has_gps: bool,
                       alt: float = 0.0):

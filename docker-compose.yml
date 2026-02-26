@@ -1,7 +1,7 @@
 services:
   gcs:
     build: .
-    command: ["python3", "-m", "gcs.web_gcs", "--max-drones", "5"]
+    command: ["python3", "-m", "gcs.web_gcs", "--max-drones", "5", "--port", "8080"]
     network_mode: host
     volumes:
       - ./output:/app/output

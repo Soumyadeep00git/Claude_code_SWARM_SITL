@@ -41,7 +41,7 @@ SAFE_DISTANCE_CLEAR_M = 4.5   # Legacy hysteresis clear
 ISOLATION_RADIUS_M = 5.0      # Hard no-cross boundary (configurable from UI)
 ISOLATION_SOFT_ZONE_M = 8.0   # Soft repulsion starts here (> isolation)
 COMMS_TIMEOUT_S = 5.0         # Seconds before declaring comms lost
-LOW_BATTERY_PCT = 20
+LOW_BATTERY_PCT = 0               # 0 = disabled (SITL battery is simulated)
 PEER_STALE_TIMEOUT_S = 5.0           # Seconds before declaring a peer dead
 COMMS_RECOVERY_TIMEOUT_S = 30.0      # Max time to rejoin after comms restored
 
@@ -84,6 +84,13 @@ P2P_ENABLED = True                    # Drones send state directly to peers
 MESH_SIM_ENABLED = True               # Use SimulatedUDPNode with network effects
 MESH_SIM_RANGE_M = 100.0             # Simulated radio range (meters)
 MESH_SIM_BANDWIDTH_BPS = 250_000     # 250 kbps simulated radio
+
+# ── RL Controller ────────────────────────────────────────────
+RL_MODEL_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                             "models", "rl_policy.onnx")
+RL_MAX_PEERS = 4            # Max peer slots in observation vector
+RL_OBS_DIM = 3 + 3 + 3 + RL_MAX_PEERS * 3  # own_pos + own_vel + goal + peers = 21
+RL_MAX_SPEED = 3.0          # Clamp RL output velocity (m/s)
 
 # ── Formation defaults ─────────────────────────────────────
 DEFAULT_SPACING_M = 5.0

@@ -34,7 +34,7 @@ class GlobalPlanner:
         self.ref_lon: float = 0.0
         self.ref_alt: float = 0.0
         self.ref_heading: float = 0.0  # degrees
-        self.leader_id: int = 1
+        self.leader_id: int = 0  # 0 = unset; derived from GCS or failsafe election
 
         # Hybrid A* path planner
         self._astar = HybridAStarPlanner(ASTAR_CONFIG)
@@ -136,7 +136,7 @@ class GlobalPlanner:
         """
         Compact slot assignment based on alive drone IDs.
         sorted(alive_ids) determines slot order — gaps from dead drones close.
-        Optionally updates ref_lat/ref_lon from new leader's position via peers.
+        Updates ref_lat/ref_lon from centroid of alive peers (not leader).
         """
         sorted_ids = sorted(alive_ids)
         if self.drone_id not in alive_ids:
@@ -146,12 +146,19 @@ class GlobalPlanner:
         self.num_drones = len(sorted_ids)
         self.leader_id = leader_id
 
-        # Update reference position from new leader if available
-        if peers is not None and leader_id != self.drone_id:
-            leader_peer = peers.get_peer(leader_id)
-            if leader_peer and (leader_peer.lat != 0.0 or leader_peer.lon != 0.0):
-                self.ref_lat = leader_peer.lat
-                self.ref_lon = leader_peer.lon
+        # Update reference position from centroid of alive peers
+        if peers is not None:
+            valid_lats, valid_lons = [], []
+            for pid in alive_ids:
+                if pid == self.drone_id:
+                    continue
+                peer = peers.get_peer(pid)
+                if peer and (peer.lat != 0.0 or peer.lon != 0.0):
+                    valid_lats.append(peer.lat)
+                    valid_lons.append(peer.lon)
+            if valid_lats:
+                self.ref_lat = sum(valid_lats) / len(valid_lats)
+                self.ref_lon = sum(valid_lons) / len(valid_lons)
 
         if old_slot != self.slot or self.num_drones != len(sorted_ids):
             log.info(

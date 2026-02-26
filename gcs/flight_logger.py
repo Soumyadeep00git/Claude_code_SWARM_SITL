@@ -40,6 +40,12 @@ class FlightLogger:
         self._alert_log: list[dict] = []
         self._commands_log: list[dict] = []
 
+        # Buffered writes — flush every 50 rows or 1 second
+        self._buffer: list[tuple[int, list]] = []
+        self._buffer_limit = 50
+        self._last_flush_time = time.time()
+        self._flush_interval_s = 1.0
+
         # Aggregated CSV (all drones interleaved)
         agg_path = os.path.join(output_dir, "flight_log.csv")
         self._agg_file = open(agg_path, "w", newline="")
@@ -60,7 +66,7 @@ class FlightLogger:
         log.info("Flight logger started — output: %s", output_dir)
 
     def log_state(self, drone_id: int, state_data: dict):
-        """Record one state sample for a drone."""
+        """Buffer one state sample. Flushed periodically or at buffer limit."""
         now = time.time()
         elapsed = now - self._start_time
 
@@ -85,15 +91,28 @@ class FlightLogger:
             state_data.get("alive_count", 0),
         ]
 
-        # Write to aggregated log
-        self._agg_writer.writerow(row)
-
-        # Write to per-drone log
-        w = self._drone_writers.get(drone_id)
-        if w:
-            w.writerow(row)
-
+        self._buffer.append((drone_id, row))
         self._sample_count += 1
+
+        # Flush if buffer full or time elapsed
+        if (len(self._buffer) >= self._buffer_limit or
+                now - self._last_flush_time >= self._flush_interval_s):
+            self._flush_buffer()
+
+    def _flush_buffer(self):
+        """Write all buffered rows to CSV files."""
+        if not self._buffer:
+            return
+        for drone_id, row in self._buffer:
+            self._agg_writer.writerow(row)
+            w = self._drone_writers.get(drone_id)
+            if w:
+                w.writerow(row)
+        self._agg_file.flush()
+        for f in self._drone_files.values():
+            f.flush()
+        self._buffer.clear()
+        self._last_flush_time = time.time()
 
     def log_alert(self, drone_id: int, alert_data: dict):
         """Record a failsafe alert."""
@@ -137,7 +156,8 @@ class FlightLogger:
         return path
 
     def close(self):
-        """Flush and close all files."""
+        """Flush remaining buffer and close all files."""
+        self._flush_buffer()
         self._agg_file.close()
         for f in self._drone_files.values():
             f.close()

@@ -454,6 +454,7 @@ select { width: 82px; }
 #status-table tr:hover { background: rgba(255,255,255,0.02); }
 .failsafe-row { background: rgba(239,68,68,0.08) !important; }
 .blocked-row { background: rgba(245,158,11,0.08) !important; }
+.stale-row { background: rgba(239,68,68,0.12) !important; opacity: 0.65; }
 
 /* ── Drone Management Grid ────────────────────────────── */
 #drone-mgmt-grid { display: flex; flex-direction: column; gap: 1px; }
@@ -701,4 +702,46 @@ select { width: 82px; }
 /* Isolation zone circles — Leaflet renders these as paths */
 .leaflet-interactive.isolation-zone {
     pointer-events: none;
+}
+
+/* ── RL Mode ─────────────────────────────────────────── */
+.rl-grid { display: flex; flex-direction: column; gap: 1px; margin-top: 3px; }
+.rl-row {
+    display: flex;
+    align-items: center;
+    gap: 3px;
+    padding: 2px 0;
+    border-bottom: 1px solid var(--border);
+}
+.rl-badge {
+    font-family: var(--font-mono);
+    font-size: 9px;
+    font-weight: 700;
+    padding: 1px 5px;
+    border-radius: 3px;
+    min-width: 24px;
+    text-align: center;
+}
+.rl-on {
+    background: rgba(139, 92, 246, 0.2);
+    color: #a78bfa;
+    border: 1px solid rgba(139, 92, 246, 0.35);
+}
+.rl-off {
+    background: rgba(255, 255, 255, 0.03);
+    color: var(--text-muted);
+    border: 1px solid var(--border);
+}
+.rl-active {
+    color: #a78bfa;
+    font-weight: 600;
+}
+.btn-rl {
+    background: rgba(139, 92, 246, 0.2);
+    color: #a78bfa;
+    border-color: rgba(139, 92, 246, 0.35);
+}
+.btn-rl:hover {
+    background: rgba(139, 92, 246, 0.35);
+    border-color: #a78bfa;
 }

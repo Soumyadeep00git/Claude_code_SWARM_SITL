@@ -23,8 +23,9 @@ class DroneState:
     formation_slot: int = -1
     failsafe_active: bool = False
     swarm_state: str = "NOMINAL"
-    leader_id: int = 1
+    leader_id: int = 0  # 0 = unset; derived from failsafe election
     alive_count: int = 0
+    rl_mode: bool = False
 
     # Optional mesh network stats (set by agent when mesh sim is active)
     mesh_stats: dict | None = None
@@ -48,6 +49,7 @@ class DroneState:
             "swarm_state": self.swarm_state,
             "leader_id": self.leader_id,
             "alive_count": self.alive_count,
+            "rl_mode": self.rl_mode,
         }
         if self.mesh_stats is not None:
             d["mesh_stats"] = self.mesh_stats

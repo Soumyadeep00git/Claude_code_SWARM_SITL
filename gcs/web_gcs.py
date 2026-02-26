@@ -1,3 +1,6 @@
+import eventlet
+eventlet.monkey_patch()
+
 """
 Web-based Ground Control Station — Flask + SocketIO.
 Interactive browser UI for launching, commanding, and monitoring drones.
@@ -30,7 +33,7 @@ from gcs.state_collector import StateCollector
 from gcs.command_dispatcher import CommandDispatcher
 from gcs.flight_logger import FlightLogger
 from gcs.drone_manager import DroneManager
-from gcs.geo_utils import ned_to_gps, centroid
+from gcs.geo_utils import ned_to_gps
 from gcs.diagnostics import run_all_tests, run_single_test
 from gcs.network_viz import NetworkAggregator
 
@@ -81,7 +84,7 @@ class WebGCS:
             static_folder=os.path.join(os.path.dirname(__file__), "static"),
         )
         self.app.config["SECRET_KEY"] = "swarm-gcs"
-        self.socketio = SocketIO(self.app, async_mode="threading",
+        self.socketio = SocketIO(self.app, async_mode="eventlet",
                                  cors_allowed_origins="*")
         self._register_routes()
         self._register_socketio_handlers()
@@ -293,6 +296,39 @@ class WebGCS:
                     GCS_HOST, port)
             self._emit_log("INFO", f"Mesh range set to {range_m:.0f}m")
 
+        # ── RL Mode ──
+
+        @sio.on("cmd_rl_mode")
+        def on_rl_mode(data):
+            enable = bool(data.get("enable", False))
+            target = data.get("target_id", 0)  # 0 = all drones
+
+            cmd_data = {"enable": enable, "target_id": target}
+            if "goal_ned" in data:
+                cmd_data["goal_ned"] = data["goal_ned"]
+
+            if target == 0:
+                with self._known_lock:
+                    peers = set(self.known_drones)
+                for i in peers:
+                    cd = dict(cmd_data)
+                    cd["target_id"] = i
+                    port = AGENT_BASE_PORT + i * AGENT_PORT_STEP
+                    self.udp.send(
+                        make_msg("RL_MODE_CMD", 0, cd),
+                        GCS_HOST, port)
+            else:
+                port = AGENT_BASE_PORT + target * AGENT_PORT_STEP
+                self.udp.send(
+                    make_msg("RL_MODE_CMD", 0, cmd_data),
+                    GCS_HOST, port)
+
+            action = "ENABLED" if enable else "DISABLED"
+            target_str = f"D{target}" if target > 0 else "ALL"
+            with self._logger_lock:
+                self.logger.log_command("RL_MODE", data)
+            self._emit_log("INFO", f"RL mode {action} for {target_str}")
+
     # ── Background threads ────────────────────────────────
 
     def _staggered_launch_all(self):
@@ -306,7 +342,7 @@ class WebGCS:
                 with self._known_lock:
                     self.known_drones.add(i)
                 self.socketio.emit("drone_launched", {
-                    "drone_id": i, "pid": 0, "ts": time.time(),
+                    "drone_id": i, "pid": "docker", "ts": time.time(),
                 })
             self._emit_log("INFO",
                            f"Registered {self.max_drones} drones "
@@ -433,7 +469,7 @@ class WebGCS:
             self.socketio.emit("state_update", payload)
 
             # Network topology update (mesh sim)
-            net_payload = self.network_agg.get_topology_payload()
+            net_payload = self.network_agg.get_topology_payload(stale_ids=stale)
             if net_payload["links"] or net_payload["nodes"]:
                 self.socketio.emit("network_update", net_payload)
 
@@ -454,13 +490,16 @@ class WebGCS:
         with self._known_lock:
             peers = set(self.known_drones)
 
+        targets = []
         for i in peers:
             if i == source_id:
                 continue
             if i in blocked or source_id in blocked:
                 continue
-            port = AGENT_BASE_PORT + i * AGENT_PORT_STEP
-            self.udp.send(raw, GCS_HOST, port)
+            targets.append((GCS_HOST, AGENT_BASE_PORT + i * AGENT_PORT_STEP))
+
+        if targets:
+            self.udp.send_to_multiple(raw, targets)
 
     def _handle_alert(self, msg: dict):
         """Process an ALERT from a drone."""
@@ -487,14 +526,11 @@ class WebGCS:
         })
 
     def _get_reference_position(self) -> tuple[float, float, float]:
-        """Get leader or centroid position for NED-to-GPS conversion."""
-        leader_pos = self.collector.get_leader_position()
-        if leader_pos and (leader_pos[0] != 0 or leader_pos[1] != 0):
-            return leader_pos
-        # Fallback to centroid of all known drones
-        states = self.collector.get_all_states()
-        positions = [(s["lat"], s["lon"], s["alt"]) for s in states.values()]
-        return centroid(positions)
+        """Get centroid of all drones for NED-to-GPS conversion."""
+        centroid_pos = self.collector.get_centroid()
+        if centroid_pos:
+            return centroid_pos
+        return (0.0, 0.0, 10.0)
 
     # ── Run / Stop ────────────────────────────────────────
 
@@ -507,8 +543,7 @@ class WebGCS:
 
         log.info("Web GCS starting on http://0.0.0.0:%d", self.web_port)
         self.socketio.run(self.app, host="0.0.0.0", port=self.web_port,
-                          debug=False, use_reloader=False,
-                          allow_unsafe_werkzeug=True)
+                          debug=False, use_reloader=False)
 
     def stop(self):
         if not self.running:

@@ -55,7 +55,7 @@ RUN pip3 install --break-system-packages --no-cache-dir -r requirements.txt
 COPY . .
 
 # Ensure output and logs dirs exist
-RUN mkdir -p /app/output /app/logs
+RUN mkdir -p /app/output /app/logs /app/models
 
 # Default: run the GCS (override per-service in docker-compose)
 CMD ["python3", "-m", "gcs.web_gcs"]
