@@ -1,0 +1,675 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Leader-Follower GCS</title>
+
+    <!-- Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+
+    <!-- Leaflet -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+          integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+            integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+
+    <!-- Socket.IO -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.5/socket.io.min.js"></script>
+
+    <style>
+        /* ── Reset + Base ─────────────────────────────────── */
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+        :root {
+            --bg: #0f1117;
+            --surface: rgba(17, 19, 27, 0.85);
+            --surface-border: rgba(255, 255, 255, 0.06);
+            --text: #e2e8f0;
+            --text-dim: #94a3b8;
+            --accent: #60a5fa;
+            --danger: #f87171;
+            --warning: #fbbf24;
+            --success: #34d399;
+            --leader-color: #60a5fa;
+            --follower-color: #34d399;
+            --glass: rgba(30, 33, 46, 0.75);
+            --glass-border: rgba(255, 255, 255, 0.08);
+            --font: 'Inter', -apple-system, sans-serif;
+            --mono: 'JetBrains Mono', monospace;
+            --radius: 10px;
+        }
+        html, body { height: 100%; font-family: var(--font); background: var(--bg); color: var(--text); overflow: hidden; }
+
+        /* ── Map ──────────────────────────────────────────── */
+        #map { position: absolute; inset: 0; z-index: 0; }
+        .leaflet-control-attribution { display: none !important; }
+
+        /* ── Top Bar ──────────────────────────────────────── */
+        #topbar {
+            position: fixed; top: 0; left: 0; right: 0; z-index: 1000;
+            height: 48px; display: flex; align-items: center; justify-content: space-between;
+            padding: 0 16px;
+            background: var(--glass); backdrop-filter: blur(16px);
+            border-bottom: 1px solid var(--glass-border);
+        }
+        .brand { display: flex; align-items: center; gap: 8px; font-weight: 700; font-size: 14px; letter-spacing: 1px; }
+        .brand svg { stroke: var(--accent); }
+        .topbar-center { display: flex; gap: 12px; }
+        .stat-chip {
+            display: flex; gap: 4px; align-items: center;
+            background: rgba(255,255,255,0.04); border: 1px solid var(--glass-border);
+            border-radius: 6px; padding: 4px 10px; font-size: 11px;
+        }
+        .stat-label { color: var(--text-dim); font-weight: 500; text-transform: uppercase; letter-spacing: 0.5px; }
+        .stat-value { color: var(--text); font-family: var(--mono); font-weight: 500; }
+        .conn-badge {
+            font-size: 11px; font-weight: 600; padding: 4px 12px; border-radius: 20px;
+            display: flex; align-items: center; gap: 6px;
+        }
+        .conn-dot { width: 7px; height: 7px; border-radius: 50%; }
+        .conn-badge.connected { background: rgba(52,211,153,0.15); color: var(--success); }
+        .conn-badge.connected .conn-dot { background: var(--success); }
+        .conn-badge.disconnected { background: rgba(248,113,113,0.15); color: var(--danger); }
+        .conn-badge.disconnected .conn-dot { background: var(--danger); }
+
+        /* ── Right Panel ──────────────────────────────────── */
+        #right-panel {
+            position: fixed; top: 56px; right: 8px; bottom: 8px; width: 320px; z-index: 1000;
+            display: flex; flex-direction: column; gap: 8px;
+            overflow-y: auto; scrollbar-width: thin; scrollbar-color: rgba(255,255,255,0.1) transparent;
+        }
+        .panel {
+            background: var(--glass); backdrop-filter: blur(16px);
+            border: 1px solid var(--glass-border); border-radius: var(--radius);
+            padding: 12px;
+        }
+        .panel-title {
+            font-size: 10px; font-weight: 700; text-transform: uppercase;
+            letter-spacing: 1.5px; color: var(--text-dim); margin-bottom: 8px;
+        }
+
+        /* ── Telemetry Grid ───────────────────────────────── */
+        .telem-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+        .telem-item { text-align: center; }
+        .telem-label { font-size: 9px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.5px; }
+        .telem-val { font-family: var(--mono); font-size: 16px; font-weight: 600; }
+        .telem-val.danger { color: var(--danger); }
+        .telem-val.warning { color: var(--warning); }
+        .telem-val.safe { color: var(--success); }
+        .telem-val.flash { animation: flash 0.5s infinite alternate; }
+        @keyframes flash { from { opacity: 1; } to { opacity: 0.3; } }
+
+        /* ── Behavior Bar ─────────────────────────────────── */
+        .behavior-bar-bg {
+            height: 8px; background: rgba(255,255,255,0.06); border-radius: 4px;
+            overflow: hidden; margin-top: 4px;
+        }
+        .behavior-bar-fill { height: 100%; border-radius: 4px; transition: width 0.3s, background 0.3s; }
+
+        /* ── Buttons ──────────────────────────────────────── */
+        .btn-row { display: flex; gap: 6px; flex-wrap: wrap; }
+        .btn {
+            flex: 1; min-width: 60px; padding: 8px 6px; border: 1px solid var(--glass-border);
+            border-radius: 8px; background: rgba(255,255,255,0.04); color: var(--text);
+            font-family: var(--font); font-size: 11px; font-weight: 600; cursor: pointer;
+            transition: background 0.15s, border-color 0.15s;
+        }
+        .btn:hover { background: rgba(255,255,255,0.08); border-color: rgba(255,255,255,0.15); }
+        .btn.primary { background: rgba(96,165,250,0.15); border-color: rgba(96,165,250,0.3); color: var(--accent); }
+        .btn.primary:hover { background: rgba(96,165,250,0.25); }
+        .btn.danger { background: rgba(248,113,113,0.15); border-color: rgba(248,113,113,0.3); color: var(--danger); }
+        .btn.danger:hover { background: rgba(248,113,113,0.25); }
+        .btn.warn { background: rgba(251,191,36,0.15); border-color: rgba(251,191,36,0.3); color: var(--warning); }
+        .btn.warn:hover { background: rgba(251,191,36,0.25); }
+        .btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+        /* ── Sliders ──────────────────────────────────────── */
+        .slider-row { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+        .slider-row label { font-size: 10px; color: var(--text-dim); width: 70px; text-transform: uppercase; letter-spacing: 0.5px; }
+        .slider-row input[type="range"] { flex: 1; accent-color: var(--accent); height: 4px; }
+        .slider-row .slider-val { font-family: var(--mono); font-size: 11px; width: 40px; text-align: right; }
+
+        /* ── Offset Inputs ────────────────────────────────── */
+        .offset-row { display: flex; gap: 6px; align-items: center; margin-bottom: 4px; }
+        .offset-row label { font-size: 10px; color: var(--text-dim); width: 20px; }
+        .offset-row input[type="number"] {
+            flex: 1; background: rgba(255,255,255,0.04); border: 1px solid var(--glass-border);
+            border-radius: 6px; padding: 4px 8px; color: var(--text); font-family: var(--mono);
+            font-size: 12px; width: 60px;
+        }
+
+        /* ── Toggle ───────────────────────────────────────── */
+        .toggle-row { display: flex; align-items: center; gap: 8px; }
+        .toggle-row label { font-size: 11px; }
+        .toggle { position: relative; width: 36px; height: 20px; }
+        .toggle input { opacity: 0; width: 0; height: 0; }
+        .toggle-slider {
+            position: absolute; inset: 0; background: rgba(255,255,255,0.1);
+            border-radius: 10px; cursor: pointer; transition: 0.3s;
+        }
+        .toggle-slider::before {
+            content: ''; position: absolute; left: 2px; top: 2px;
+            width: 16px; height: 16px; border-radius: 50%;
+            background: var(--text-dim); transition: 0.3s;
+        }
+        .toggle input:checked + .toggle-slider { background: rgba(96,165,250,0.3); }
+        .toggle input:checked + .toggle-slider::before { transform: translateX(16px); background: var(--accent); }
+
+        /* ── WASD display ─────────────────────────────────── */
+        .wasd-hint {
+            font-size: 10px; color: var(--text-dim); text-align: center; margin-top: 4px;
+            font-family: var(--mono);
+        }
+        .wasd-grid { display: grid; grid-template-columns: repeat(3, 32px); gap: 3px; justify-content: center; margin-top: 4px; }
+        .wasd-key {
+            width: 32px; height: 28px; display: flex; align-items: center; justify-content: center;
+            background: rgba(255,255,255,0.04); border: 1px solid var(--glass-border);
+            border-radius: 4px; font-family: var(--mono); font-size: 12px; font-weight: 600;
+        }
+        .wasd-key.active { background: rgba(96,165,250,0.2); border-color: var(--accent); color: var(--accent); }
+        .wasd-key.empty { border: none; background: none; }
+
+        /* ── Log ──────────────────────────────────────────── */
+        #log-area {
+            max-height: 100px; overflow-y: auto; font-family: var(--mono);
+            font-size: 10px; color: var(--text-dim); line-height: 1.6;
+            scrollbar-width: thin;
+        }
+    </style>
+</head>
+<body>
+    <!-- ═══ MAP ═══ -->
+    <div id="map"></div>
+
+    <!-- ═══ TOP BAR ═══ -->
+    <header id="topbar">
+        <div class="brand">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke-width="2.5">
+                <circle cx="12" cy="12" r="3"/><path d="M12 1v4M12 19v4M1 12h4M19 12h4M4.2 4.2l2.8 2.8M17 17l2.8 2.8M4.2 19.8l2.8-2.8M17 7l2.8-2.8"/>
+            </svg>
+            LEADER-FOLLOWER GCS
+        </div>
+        <div class="topbar-center">
+            <div class="stat-chip"><span class="stat-label">STATE</span><span id="sys-state" class="stat-value">IDLE</span></div>
+            <div class="stat-chip"><span class="stat-label">MODE</span><span id="ctrl-mode" class="stat-value">---</span></div>
+            <div class="stat-chip"><span class="stat-label">DIST</span><span id="peer-dist-top" class="stat-value">---</span></div>
+        </div>
+        <div>
+            <span id="conn-status" class="conn-badge disconnected">
+                <span class="conn-dot"></span> <span id="conn-text">Disconnected</span>
+            </span>
+        </div>
+    </header>
+
+    <!-- ═══ RIGHT PANEL ═══ -->
+    <div id="right-panel">
+        <!-- Flight Controls -->
+        <div class="panel">
+            <div class="panel-title">Flight Control</div>
+            <div class="btn-row" style="margin-bottom: 6px;">
+                <button id="btn-start" class="btn primary" onclick="cmdStart()">Start</button>
+                <button id="btn-land" class="btn danger" onclick="cmdLand()">Land</button>
+                <button id="btn-auto" class="btn" onclick="cmdAutoMission()">Auto Mission</button>
+            </div>
+            <div class="btn-row">
+                <button class="btn" onclick="cmdStop()">Stop / Hover</button>
+            </div>
+        </div>
+
+        <!-- Telemetry -->
+        <div class="panel">
+            <div class="panel-title">Telemetry</div>
+            <div class="telem-grid">
+                <div class="telem-item">
+                    <div class="telem-label">Peer Dist (m)</div>
+                    <div id="telem-dist" class="telem-val safe">---</div>
+                </div>
+                <div class="telem-item">
+                    <div class="telem-label">Behavior</div>
+                    <div id="telem-behavior" class="telem-val">---</div>
+                </div>
+                <div class="telem-item">
+                    <div class="telem-label">Leader Spd</div>
+                    <div id="telem-l-speed" class="telem-val">---</div>
+                </div>
+                <div class="telem-item">
+                    <div class="telem-label">Follower Spd</div>
+                    <div id="telem-f-speed" class="telem-val">---</div>
+                </div>
+                <div class="telem-item">
+                    <div class="telem-label">Offset Err N</div>
+                    <div id="telem-off-n" class="telem-val">---</div>
+                </div>
+                <div class="telem-item">
+                    <div class="telem-label">Offset Err E</div>
+                    <div id="telem-off-e" class="telem-val">---</div>
+                </div>
+            </div>
+            <div style="margin-top: 8px;">
+                <div class="telem-label">Erratic Score</div>
+                <div style="display:flex;align-items:center;gap:8px;">
+                    <div class="behavior-bar-bg" style="flex:1;">
+                        <div id="behavior-bar" class="behavior-bar-fill" style="width:0%;background:var(--success);"></div>
+                    </div>
+                    <span id="behavior-pct" style="font-family:var(--mono);font-size:11px;">0%</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- APF Forces -->
+        <div class="panel">
+            <div class="panel-title">APF Forces</div>
+            <div class="telem-grid">
+                <div class="telem-item">
+                    <div class="telem-label">Attractive</div>
+                    <div id="telem-f-att" class="telem-val">---</div>
+                </div>
+                <div class="telem-item">
+                    <div class="telem-label">Repulsive</div>
+                    <div id="telem-f-rep" class="telem-val">---</div>
+                </div>
+                <div class="telem-item">
+                    <div class="telem-label">Vortex</div>
+                    <div id="telem-f-vortex" class="telem-val">---</div>
+                </div>
+                <div class="telem-item">
+                    <div class="telem-label">Emergency</div>
+                    <div id="telem-emg" class="telem-val">NO</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Manual Control -->
+        <div class="panel">
+            <div class="panel-title">Manual Leader Control</div>
+            <div class="wasd-grid">
+                <div class="wasd-key empty"></div>
+                <div class="wasd-key" id="key-w">W</div>
+                <div class="wasd-key empty"></div>
+                <div class="wasd-key" id="key-a">A</div>
+                <div class="wasd-key" id="key-s">S</div>
+                <div class="wasd-key" id="key-d">D</div>
+            </div>
+            <div class="wasd-hint">WASD=move Q/E=up/down (hold keys)</div>
+        </div>
+
+        <!-- Erratic Scenarios -->
+        <div class="panel">
+            <div class="panel-title">Erratic Scenarios</div>
+            <div class="btn-row" style="margin-bottom: 4px;">
+                <button class="btn danger" onclick="cmdErratic('CHARGE')">Charge</button>
+                <button class="btn warn" onclick="cmdErratic('ZIGZAG')">Zigzag</button>
+            </div>
+            <div class="btn-row">
+                <button class="btn warn" onclick="cmdErratic('SUDDEN_STOP')">Sudden Stop</button>
+                <button class="btn warn" onclick="cmdErratic('SPRINT')">Sprint</button>
+            </div>
+        </div>
+
+        <!-- APF Parameters -->
+        <div class="panel">
+            <div class="panel-title">APF Parameters</div>
+            <div class="slider-row">
+                <label>k_att</label>
+                <input type="range" id="sl-k-att" min="0.1" max="5" step="0.1" value="0.7">
+                <span class="slider-val" id="sv-k-att">0.7</span>
+            </div>
+            <div class="slider-row">
+                <label>k_rep</label>
+                <input type="range" id="sl-k-rep" min="0.5" max="10" step="0.1" value="2.5">
+                <span class="slider-val" id="sv-k-rep">2.5</span>
+            </div>
+            <div class="slider-row">
+                <label>d_safe</label>
+                <input type="range" id="sl-d-safe" min="3" max="25" step="0.5" value="12">
+                <span class="slider-val" id="sv-d-safe">12</span>
+            </div>
+            <div class="slider-row">
+                <label>d_emg</label>
+                <input type="range" id="sl-d-emg" min="1" max="5" step="0.1" value="2">
+                <span class="slider-val" id="sv-d-emg">2.0</span>
+            </div>
+            <div class="slider-row">
+                <label>max spd</label>
+                <input type="range" id="sl-max-spd" min="0.5" max="6" step="0.1" value="3">
+                <span class="slider-val" id="sv-max-spd">3.0</span>
+            </div>
+        </div>
+
+        <!-- Follower Offset -->
+        <div class="panel">
+            <div class="panel-title">Follower Offset (NED m)</div>
+            <div class="offset-row">
+                <label>N</label>
+                <input type="number" id="off-n" value="-5" step="0.5">
+                <label>E</label>
+                <input type="number" id="off-e" value="3" step="0.5">
+                <label>D</label>
+                <input type="number" id="off-d" value="0" step="0.5">
+            </div>
+            <button class="btn" onclick="cmdSetOffset()" style="width:100%;margin-top:4px;">Apply Offset</button>
+        </div>
+
+        <!-- Adaptive Toggle -->
+        <div class="panel">
+            <div class="panel-title">Adaptive APF</div>
+            <div class="toggle-row">
+                <label class="toggle">
+                    <input type="checkbox" id="adaptive-toggle" checked onchange="cmdToggleAdaptive()">
+                    <span class="toggle-slider"></span>
+                </label>
+                <label for="adaptive-toggle">Enable adaptive gains</label>
+            </div>
+        </div>
+
+        <!-- Log -->
+        <div class="panel">
+            <div class="panel-title">Log</div>
+            <div id="log-area"></div>
+        </div>
+    </div>
+
+    <!-- ═══ CLICK INSTRUCTION (floating) ═══ -->
+    <div id="click-hint" style="
+        position:fixed; bottom:12px; left:50%; transform:translateX(-50%); z-index:1000;
+        background:var(--glass); backdrop-filter:blur(12px); border:1px solid var(--glass-border);
+        border-radius:8px; padding:6px 16px; font-size:11px; color:var(--text-dim);
+    ">
+        Click map to send leader waypoint | WASD to steer manually
+    </div>
+
+    <script>
+    // ═══════════════════════════════════════════════════════════
+    // Socket.IO + State
+    // ═══════════════════════════════════════════════════════════
+    const socket = io();
+    const HOME_LAT = {{ home_lat }};
+    const HOME_LON = {{ home_lon }};
+
+    // Map setup
+    const map = L.map('map', {zoomControl: false}).setView([HOME_LAT, HOME_LON], 18);
+    L.control.zoom({position: 'bottomleft'}).addTo(map);
+
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        maxZoom: 22,
+    }).addTo(map);
+
+    // Markers
+    const leaderIcon = L.divIcon({
+        className: '',
+        html: '<div style="width:16px;height:16px;border-radius:50%;background:#60a5fa;border:2px solid #fff;box-shadow:0 0 8px rgba(96,165,250,0.5);"></div>',
+        iconSize: [16, 16], iconAnchor: [8, 8],
+    });
+    const followerIcon = L.divIcon({
+        className: '',
+        html: '<div style="width:14px;height:14px;border-radius:50%;background:#34d399;border:2px solid #fff;box-shadow:0 0 8px rgba(52,211,153,0.5);"></div>',
+        iconSize: [14, 14], iconAnchor: [7, 7],
+    });
+
+    const leaderMarker = L.marker([HOME_LAT, HOME_LON], {icon: leaderIcon}).addTo(map);
+    const followerMarker = L.marker([HOME_LAT, HOME_LON], {icon: followerIcon}).addTo(map);
+
+    // Labels
+    leaderMarker.bindTooltip('Leader', {permanent: true, direction: 'top', offset: [0, -12],
+        className: 'drone-label'});
+    followerMarker.bindTooltip('Follower', {permanent: true, direction: 'top', offset: [0, -10],
+        className: 'drone-label'});
+
+    // Add label styles
+    const labelStyle = document.createElement('style');
+    labelStyle.textContent = `.drone-label { background: rgba(0,0,0,0.6) !important; color: #e2e8f0 !important;
+        border: 1px solid rgba(255,255,255,0.1) !important; font-size: 10px !important; font-weight: 600 !important;
+        padding: 1px 6px !important; border-radius: 4px !important; }`;
+    document.head.appendChild(labelStyle);
+
+    // Trails
+    const leaderTrail = L.polyline([], {color: '#60a5fa', weight: 2, opacity: 0.5}).addTo(map);
+    const followerTrail = L.polyline([], {color: '#34d399', weight: 2, opacity: 0.5}).addTo(map);
+    const MAX_TRAIL = 200;
+
+    // Safety circles (around follower)
+    const safeCircle = L.circle([HOME_LAT, HOME_LON], {
+        radius: 12, color: '#fbbf24', weight: 1, opacity: 0.4,
+        fillColor: '#fbbf24', fillOpacity: 0.03, dashArray: '6 4',
+    }).addTo(map);
+    const emgCircle = L.circle([HOME_LAT, HOME_LON], {
+        radius: 2, color: '#f87171', weight: 1.5, opacity: 0.5,
+        fillColor: '#f87171', fillOpacity: 0.05, dashArray: '4 3',
+    }).addTo(map);
+
+    // Click waypoint marker
+    let wpMarker = null;
+
+    // ── Map click → waypoint ──────────────────────────────
+    map.on('click', function(e) {
+        socket.emit('cmd_click_waypoint', {lat: e.latlng.lat, lon: e.latlng.lng});
+        if (wpMarker) map.removeLayer(wpMarker);
+        wpMarker = L.circleMarker(e.latlng, {
+            radius: 6, color: '#f59e0b', weight: 2, fillColor: '#f59e0b', fillOpacity: 0.3,
+        }).addTo(map);
+    });
+
+    // ═══════════════════════════════════════════════════════════
+    // State Update Handler
+    // ═══════════════════════════════════════════════════════════
+    let autoCenter = true;
+
+    socket.on('state_update', function(d) {
+        // Update markers
+        if (d.leader.lat !== 0) {
+            const ll = [d.leader.lat, d.leader.lon];
+            leaderMarker.setLatLng(ll);
+            const pts = leaderTrail.getLatLngs();
+            pts.push(ll);
+            if (pts.length > MAX_TRAIL) pts.shift();
+            leaderTrail.setLatLngs(pts);
+        }
+        if (d.follower.lat !== 0) {
+            const fl = [d.follower.lat, d.follower.lon];
+            followerMarker.setLatLng(fl);
+            const pts = followerTrail.getLatLngs();
+            pts.push(fl);
+            if (pts.length > MAX_TRAIL) pts.shift();
+            followerTrail.setLatLngs(pts);
+
+            // Safety circles around follower
+            safeCircle.setLatLng(fl);
+            safeCircle.setRadius(d.d_safe || 12);
+            emgCircle.setLatLng(fl);
+            emgCircle.setRadius(d.d_emg || 2);
+        }
+
+        // Auto-center
+        if (autoCenter && d.leader.lat !== 0 && d.follower.lat !== 0) {
+            const bounds = L.latLngBounds(
+                [d.leader.lat, d.leader.lon],
+                [d.follower.lat, d.follower.lon]
+            ).pad(0.5);
+            map.fitBounds(bounds, {maxZoom: 19, animate: true, duration: 0.5});
+        }
+
+        // Telemetry
+        const dist = d.peer_dist;
+        const distEl = document.getElementById('telem-dist');
+        distEl.textContent = dist.toFixed(1);
+        distEl.className = 'telem-val ' + (dist < 2 ? 'danger flash' : dist < 5 ? 'danger' : dist < 12 ? 'warning' : 'safe');
+
+        document.getElementById('telem-behavior').textContent = d.behavior_mode;
+        document.getElementById('telem-l-speed').textContent = d.leader.speed.toFixed(1);
+        document.getElementById('telem-f-speed').textContent = d.follower.speed.toFixed(1);
+        document.getElementById('telem-off-n').textContent = d.offset_err_n.toFixed(1);
+        document.getElementById('telem-off-e').textContent = d.offset_err_e.toFixed(1);
+
+        // Behavior bar
+        const score = d.behavior_score;
+        const pct = Math.round(score * 100);
+        document.getElementById('behavior-bar').style.width = pct + '%';
+        document.getElementById('behavior-bar').style.background =
+            score < 0.3 ? 'var(--success)' : score < 0.6 ? 'var(--warning)' : 'var(--danger)';
+        document.getElementById('behavior-pct').textContent = pct + '%';
+
+        // APF forces
+        document.getElementById('telem-f-att').textContent = d.apf.f_att.toFixed(2);
+        document.getElementById('telem-f-rep').textContent = d.apf.f_rep.toFixed(2);
+        document.getElementById('telem-f-vortex').textContent = d.apf.f_vortex.toFixed(2);
+        const emgEl = document.getElementById('telem-emg');
+        emgEl.textContent = d.apf.emergency ? 'YES' : 'NO';
+        emgEl.className = 'telem-val ' + (d.apf.emergency ? 'danger flash' : '');
+
+        // Top bar
+        document.getElementById('sys-state').textContent = d.state;
+        document.getElementById('ctrl-mode').textContent = d.mode;
+        const pdTop = document.getElementById('peer-dist-top');
+        pdTop.textContent = dist.toFixed(1) + 'm';
+        pdTop.style.color = dist < 5 ? 'var(--danger)' : dist < 12 ? 'var(--warning)' : 'var(--success)';
+
+        // Remove waypoint marker if not in waypoint mode
+        if (d.mode !== 'WAYPOINT' && wpMarker) {
+            map.removeLayer(wpMarker);
+            wpMarker = null;
+        }
+    });
+
+    // ── State change ──────────────────────────────────────
+    socket.on('state_change', function(d) {
+        document.getElementById('sys-state').textContent = d.state;
+        const startBtn = document.getElementById('btn-start');
+        const landBtn = document.getElementById('btn-land');
+        startBtn.disabled = d.state !== 'IDLE';
+        landBtn.disabled = d.state !== 'FLYING' && d.state !== 'TAKEOFF';
+    });
+
+    // ── Connection ────────────────────────────────────────
+    socket.on('connect', function() {
+        document.getElementById('conn-status').className = 'conn-badge connected';
+        document.getElementById('conn-text').textContent = 'Connected';
+    });
+    socket.on('disconnect', function() {
+        document.getElementById('conn-status').className = 'conn-badge disconnected';
+        document.getElementById('conn-text').textContent = 'Disconnected';
+    });
+
+    // ── Log ───────────────────────────────────────────────
+    socket.on('log', function(d) {
+        const area = document.getElementById('log-area');
+        const line = document.createElement('div');
+        const t = new Date().toLocaleTimeString('en-US', {hour12: false});
+        line.textContent = t + ' ' + d.msg;
+        area.appendChild(line);
+        area.scrollTop = area.scrollHeight;
+        // Keep last 50 lines
+        while (area.children.length > 50) area.removeChild(area.firstChild);
+    });
+
+    // ═══════════════════════════════════════════════════════════
+    // Commands
+    // ═══════════════════════════════════════════════════════════
+    function cmdStart() { socket.emit('cmd_start'); }
+    function cmdLand() { socket.emit('cmd_land'); }
+    function cmdAutoMission() { socket.emit('cmd_auto_mission'); }
+    function cmdStop() { socket.emit('cmd_stop_manual'); }
+    function cmdErratic(s) { socket.emit('cmd_erratic_scenario', {scenario: s}); }
+
+    function cmdSetOffset() {
+        socket.emit('cmd_set_offset', {
+            n: parseFloat(document.getElementById('off-n').value),
+            e: parseFloat(document.getElementById('off-e').value),
+            d: parseFloat(document.getElementById('off-d').value),
+        });
+    }
+
+    function cmdToggleAdaptive() {
+        const en = document.getElementById('adaptive-toggle').checked;
+        socket.emit('cmd_toggle_adaptive', {enabled: en});
+    }
+
+    // ── APF Sliders ───────────────────────────────────────
+    const sliderMap = {
+        'sl-k-att': {key: 'kp_attract', display: 'sv-k-att'},
+        'sl-k-rep': {key: 'repel_gain', display: 'sv-k-rep'},
+        'sl-d-safe': {key: 'soft_radius_m', display: 'sv-d-safe'},
+        'sl-d-emg': {key: 'emergency_radius_m', display: 'sv-d-emg'},
+        'sl-max-spd': {key: 'max_speed_ms', display: 'sv-max-spd'},
+    };
+    for (const [sliderId, cfg] of Object.entries(sliderMap)) {
+        const el = document.getElementById(sliderId);
+        el.addEventListener('input', function() {
+            document.getElementById(cfg.display).textContent = parseFloat(el.value).toFixed(1);
+            const params = {};
+            params[cfg.key] = parseFloat(el.value);
+            socket.emit('cmd_apf_params', params);
+        });
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    // WASD Keyboard Control
+    // ═══════════════════════════════════════════════════════════
+    const MOVE_SPEED = 2.0;
+    const VERT_SPEED = 0.8;
+    const heldKeys = new Set();
+    let wasdInterval = null;
+
+    function sendWASD() {
+        let vn = 0, ve = 0, vd = 0;
+        if (heldKeys.has('w')) vn += MOVE_SPEED;
+        if (heldKeys.has('s')) vn -= MOVE_SPEED;
+        if (heldKeys.has('d')) ve += MOVE_SPEED;
+        if (heldKeys.has('a')) ve -= MOVE_SPEED;
+        if (heldKeys.has('q')) vd -= VERT_SPEED;  // up (NED: negative D = up)
+        if (heldKeys.has('e')) vd += VERT_SPEED;  // down
+
+        socket.emit('cmd_leader_velocity', {vn: vn, ve: ve, vd: vd});
+
+        // Highlight keys
+        ['w','a','s','d'].forEach(k => {
+            const el = document.getElementById('key-' + k);
+            if (el) el.className = 'wasd-key' + (heldKeys.has(k) ? ' active' : '');
+        });
+    }
+
+    document.addEventListener('keydown', function(e) {
+        // Don't capture if typing in an input
+        if (e.target.tagName === 'INPUT') return;
+
+        const k = e.key.toLowerCase();
+        if ('wasdqe'.includes(k) && !heldKeys.has(k)) {
+            heldKeys.add(k);
+            sendWASD();
+            if (!wasdInterval) {
+                wasdInterval = setInterval(sendWASD, 100);  // 10 Hz repeat
+            }
+        }
+    });
+
+    document.addEventListener('keyup', function(e) {
+        const k = e.key.toLowerCase();
+        if (heldKeys.has(k)) {
+            heldKeys.delete(k);
+            if (heldKeys.size === 0 && wasdInterval) {
+                clearInterval(wasdInterval);
+                wasdInterval = null;
+                // Send zero to stop
+                socket.emit('cmd_leader_velocity', {vn: 0, ve: 0, vd: 0});
+                ['w','a','s','d'].forEach(k2 => {
+                    const el = document.getElementById('key-' + k2);
+                    if (el) el.className = 'wasd-key';
+                });
+            } else {
+                sendWASD();
+            }
+        }
+    });
+
+    // ── Disable auto-center when user pans ────────────────
+    map.on('dragstart', function() { autoCenter = false; });
+    // Double-click to re-enable
+    map.on('dblclick', function(e) {
+        autoCenter = true;
+        e.originalEvent.preventDefault();
+    });
+
+    </script>
+</body>
+</html>

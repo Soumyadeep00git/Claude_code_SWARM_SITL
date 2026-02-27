@@ -1,0 +1,60 @@
+# ================================================================
+#  FOLLOWER GUIDANCE CONFIGURATION
+# ================================================================
+#  Edit these values and load with:
+#    import yaml
+#    with open('config.yaml') as f:
+#        params = yaml.safe_load(f)
+#    cfg = GuidanceConfig(**params['guidance'])
+# ================================================================
+
+# ── Formation offset (NED meters from leader) ──────────────────
+offset:
+  north_m: -5.0        # negative = behind leader
+  east_m:  3.0         # positive = right of leader
+  down_m:  0.0         # 0 = same altitude as leader
+
+# ── Guidance gains and thresholds ───────────────────────────────
+guidance:
+  # Tracking mode (PD + feedforward)
+  kp: 0.7              # position gain (m/s per m error). Higher = snappier.
+  kd: 0.4              # velocity damping. Higher = less overshoot.
+  ff_gain: 0.8         # leader velocity feedforward. 0=reactive, 1=full prediction.
+
+  # Catch-up mode
+  catchup_dist_m: 8.0  # error above this triggers CATCHUP
+  max_catchup_speed: 4.0  # max horizontal speed in CATCHUP (m/s)
+
+  # Evasion mode
+  safety_dist_m: 1.0   # peer distance below this triggers EVASION
+  escape_speed: 3.0    # repulsion speed in EVASION (m/s)
+
+  # Speed limits
+  max_speed: 3.0       # horizontal speed cap in TRACKING (m/s)
+  max_vertical_speed: 1.5  # vertical speed cap, all modes (m/s)
+  max_accel: 4.0       # max velocity change per tick (m/s). Scale for loop rate.
+                        #   10Hz: 4.0 (default)
+                        #   20Hz: 2.0
+                        #   50Hz: 0.8
+
+  # Altitude safety
+  min_altitude_m: 3.0       # soft floor: starts pushing up gradually
+  critical_altitude_m: 1.5  # hard floor: full push-up, emergency flag
+  deadzone_m: 0.5           # no tracking output below this error (hover)
+
+  # Failsafes
+  max_peer_dist_m: 50.0         # hover + FAILSAFE if leader farther than this
+  geofence_radius_m: 200.0      # hover + FAILSAFE if this far from home
+  home_lat: -35.3632620         # home latitude (degrees) — SET THIS
+  home_lon: 149.1652370         # home longitude (degrees) — SET THIS
+  catchup_timeout_ticks: 300    # hover + FAILSAFE after this many CATCHUP ticks
+                                #   300 ticks at 10Hz = 30 seconds
+
+# ── Command smoother ───────────────────────────────────────────
+smoother:
+  alpha: 0.3           # EMA smoothing factor. Lower = smoother but slower.
+  deadband: 0.2        # horizontal speed below this snaps to 0 (hover).
+
+# ── Control loop ───────────────────────────────────────────────
+control:
+  rate_hz: 10          # guidance loop rate. Adjust max_accel if you change this.

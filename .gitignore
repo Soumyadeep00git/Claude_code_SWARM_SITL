@@ -1,0 +1,11 @@
+__pycache__/
+*.pyc
+*.egg-info/
+*.log
+.vscode/
+.claude/
+sim/output/
+sim/logs/
+/output/
+*.gif
+*.csv

@@ -1,0 +1,14 @@
+telemetry_bridge:
+  ros__parameters:
+    leader_sysid: 1
+    follower_sysid: 2
+    mavlink_port: "/dev/ttyUSB0"
+    mavlink_baud: 57600
+    log_rate_hz: 2.0
+    log_directory: "~/flight_logs"
+
+command_relay:
+  ros__parameters:
+    mavlink_port: "/dev/ttyUSB0"
+    mavlink_baud: 57600
+    follower_sysid: 2

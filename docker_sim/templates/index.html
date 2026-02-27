@@ -1,0 +1,520 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Leader-Follower GCS (Docker)</title>
+
+    <!-- Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+
+    <!-- Leaflet -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+          integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+            integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+
+    <!-- Socket.IO -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.5/socket.io.min.js"></script>
+
+    <style>
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+        :root {
+            --bg: #0f1117;
+            --surface: rgba(17, 19, 27, 0.85);
+            --surface-border: rgba(255, 255, 255, 0.06);
+            --text: #e2e8f0;
+            --text-dim: #94a3b8;
+            --accent: #60a5fa;
+            --danger: #f87171;
+            --warning: #fbbf24;
+            --success: #34d399;
+            --leader-color: #60a5fa;
+            --follower-color: #34d399;
+            --glass: rgba(30, 33, 46, 0.75);
+            --glass-border: rgba(255, 255, 255, 0.08);
+            --font: 'Inter', -apple-system, sans-serif;
+            --mono: 'JetBrains Mono', monospace;
+            --radius: 10px;
+        }
+        html, body { height: 100%; font-family: var(--font); background: var(--bg); color: var(--text); overflow: hidden; }
+
+        /* ── Map ──────────────────────────────────────────── */
+        #map { position: absolute; inset: 0; z-index: 0; }
+        .leaflet-control-attribution { display: none !important; }
+
+        /* ── Top Bar ──────────────────────────────────────── */
+        #topbar {
+            position: fixed; top: 0; left: 0; right: 0; z-index: 1000;
+            height: 48px; display: flex; align-items: center; justify-content: space-between;
+            padding: 0 16px;
+            background: var(--glass); backdrop-filter: blur(16px);
+            border-bottom: 1px solid var(--glass-border);
+        }
+        .brand { display: flex; align-items: center; gap: 8px; font-weight: 700; font-size: 14px; letter-spacing: 1px; }
+        .brand svg { stroke: var(--accent); }
+        .topbar-center { display: flex; gap: 12px; }
+        .stat-chip {
+            display: flex; gap: 4px; align-items: center;
+            background: rgba(255,255,255,0.04); border: 1px solid var(--glass-border);
+            border-radius: 6px; padding: 4px 10px; font-size: 11px;
+        }
+        .stat-label { color: var(--text-dim); font-weight: 500; text-transform: uppercase; letter-spacing: 0.5px; }
+        .stat-value { color: var(--text); font-family: var(--mono); font-weight: 500; }
+
+        .conn-indicator { display: flex; gap: 8px; }
+        .conn-badge {
+            font-size: 10px; font-weight: 600; padding: 4px 10px; border-radius: 20px;
+            display: flex; align-items: center; gap: 5px;
+        }
+        .conn-dot { width: 6px; height: 6px; border-radius: 50%; }
+        .conn-badge.on { background: rgba(52,211,153,0.15); color: var(--success); }
+        .conn-badge.on .conn-dot { background: var(--success); }
+        .conn-badge.off { background: rgba(248,113,113,0.15); color: var(--danger); }
+        .conn-badge.off .conn-dot { background: var(--danger); }
+
+        /* ── Right Panel ──────────────────────────────────── */
+        #right-panel {
+            position: fixed; top: 56px; right: 8px; bottom: 8px; width: 320px; z-index: 1000;
+            display: flex; flex-direction: column; gap: 8px;
+            overflow-y: auto; scrollbar-width: thin; scrollbar-color: rgba(255,255,255,0.1) transparent;
+        }
+        .panel {
+            background: var(--glass); backdrop-filter: blur(16px);
+            border: 1px solid var(--glass-border); border-radius: var(--radius);
+            padding: 12px;
+        }
+        .panel-title {
+            font-size: 10px; font-weight: 700; text-transform: uppercase;
+            letter-spacing: 1.5px; color: var(--text-dim); margin-bottom: 8px;
+        }
+
+        /* ── Telemetry Grid ───────────────────────────────── */
+        .telem-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+        .telem-item { text-align: center; }
+        .telem-label { font-size: 9px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.5px; }
+        .telem-val { font-family: var(--mono); font-size: 16px; font-weight: 600; }
+        .telem-val.danger { color: var(--danger); }
+        .telem-val.warning { color: var(--warning); }
+        .telem-val.safe { color: var(--success); }
+        .telem-val.flash { animation: flash 0.5s infinite alternate; }
+        @keyframes flash { from { opacity: 1; } to { opacity: 0.3; } }
+
+        /* ── Buttons ──────────────────────────────────────── */
+        .btn-row { display: flex; gap: 6px; flex-wrap: wrap; }
+        .btn {
+            flex: 1; min-width: 60px; padding: 8px 6px; border: 1px solid var(--glass-border);
+            border-radius: 8px; background: rgba(255,255,255,0.04); color: var(--text);
+            font-family: var(--font); font-size: 11px; font-weight: 600; cursor: pointer;
+            transition: background 0.15s, border-color 0.15s;
+        }
+        .btn:hover { background: rgba(255,255,255,0.08); border-color: rgba(255,255,255,0.15); }
+        .btn.primary { background: rgba(96,165,250,0.15); border-color: rgba(96,165,250,0.3); color: var(--accent); }
+        .btn.primary:hover { background: rgba(96,165,250,0.25); }
+        .btn.danger { background: rgba(248,113,113,0.15); border-color: rgba(248,113,113,0.3); color: var(--danger); }
+        .btn.danger:hover { background: rgba(248,113,113,0.25); }
+        .btn.warn { background: rgba(251,191,36,0.15); border-color: rgba(251,191,36,0.3); color: var(--warning); }
+        .btn.warn:hover { background: rgba(251,191,36,0.25); }
+
+        /* ── Target selector tabs ─────────────────────────── */
+        .target-tabs { display: flex; gap: 4px; margin-bottom: 8px; }
+        .target-tab {
+            flex: 1; padding: 5px 0; text-align: center; border-radius: 6px;
+            font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;
+            cursor: pointer; border: 1px solid var(--glass-border);
+            background: rgba(255,255,255,0.03); color: var(--text-dim);
+            transition: all 0.15s;
+        }
+        .target-tab.active { background: rgba(96,165,250,0.15); border-color: var(--accent); color: var(--accent); }
+        .target-tab:hover { background: rgba(255,255,255,0.06); }
+
+        /* ── Keyboard shortcuts display ───────────────────── */
+        .shortcut-grid { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; margin-top: 4px; }
+        .shortcut-key {
+            display: inline-block; min-width: 24px; text-align: center;
+            background: rgba(255,255,255,0.06); border: 1px solid var(--glass-border);
+            border-radius: 4px; padding: 2px 6px; font-family: var(--mono);
+            font-size: 11px; font-weight: 600;
+        }
+        .shortcut-key.active { background: rgba(248,113,113,0.2); border-color: var(--danger); color: var(--danger); }
+        .shortcut-desc { font-size: 11px; color: var(--text-dim); line-height: 24px; }
+
+        /* ── Network Monitor ──────────────────────────────── */
+        .net-grid { display: grid; grid-template-columns: 1fr auto auto; gap: 4px 10px; align-items: center; }
+        .net-link {
+            font-size: 10px; font-weight: 600; display: flex; align-items: center; gap: 6px;
+        }
+        .net-arrow { color: var(--text-dim); font-family: var(--mono); font-size: 11px; }
+        .net-dot {
+            width: 7px; height: 7px; border-radius: 50%;
+            display: inline-block; transition: background 0.3s;
+        }
+        .net-dot.alive { background: var(--success); box-shadow: 0 0 6px rgba(52,211,153,0.5); }
+        .net-dot.dead { background: var(--danger); box-shadow: 0 0 6px rgba(248,113,113,0.4); }
+        .net-rate { font-family: var(--mono); font-size: 11px; font-weight: 500; text-align: right; }
+        .net-count { font-family: var(--mono); font-size: 10px; color: var(--text-dim); text-align: right; }
+        .net-separator { grid-column: 1/-1; height: 1px; background: var(--glass-border); margin: 2px 0; }
+
+        /* ── Log ──────────────────────────────────────────── */
+        #log-area {
+            max-height: 120px; overflow-y: auto; font-family: var(--mono);
+            font-size: 10px; color: var(--text-dim); line-height: 1.6;
+            scrollbar-width: thin;
+        }
+    </style>
+</head>
+<body>
+    <!-- ═══ MAP ═══ -->
+    <div id="map"></div>
+
+    <!-- ═══ TOP BAR ═══ -->
+    <header id="topbar">
+        <div class="brand">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke-width="2.5">
+                <circle cx="12" cy="12" r="3"/><path d="M12 1v4M12 19v4M1 12h4M19 12h4M4.2 4.2l2.8 2.8M17 17l2.8 2.8M4.2 19.8l2.8-2.8M17 7l2.8-2.8"/>
+            </svg>
+            GCS (DOCKER)
+        </div>
+        <div class="topbar-center">
+            <div class="stat-chip"><span class="stat-label">DIST</span><span id="peer-dist-top" class="stat-value">---</span></div>
+            <div class="stat-chip"><span class="stat-label">L ALT</span><span id="leader-alt-top" class="stat-value">---</span></div>
+            <div class="stat-chip"><span class="stat-label">F ALT</span><span id="follower-alt-top" class="stat-value">---</span></div>
+        </div>
+        <div class="conn-indicator">
+            <span id="conn-leader" class="conn-badge off"><span class="conn-dot"></span>Leader</span>
+            <span id="conn-follower" class="conn-badge off"><span class="conn-dot"></span>Follower</span>
+        </div>
+    </header>
+
+    <!-- ═══ RIGHT PANEL ═══ -->
+    <div id="right-panel">
+        <!-- RC Override Commands -->
+        <div class="panel">
+            <div class="panel-title">RC Override Commands</div>
+            <div class="target-tabs">
+                <div class="target-tab active" id="tab-both" onclick="setTarget('both')">Both</div>
+                <div class="target-tab" id="tab-leader" onclick="setTarget('leader')">Leader</div>
+                <div class="target-tab" id="tab-follower" onclick="setTarget('follower')">Follower</div>
+            </div>
+            <div class="btn-row" style="margin-bottom: 6px;">
+                <button class="btn warn" onclick="cmdRTL()">RTL</button>
+                <button class="btn danger" onclick="cmdLand()">LAND</button>
+                <button class="btn danger" onclick="cmdKill()" style="background:rgba(248,50,50,0.25);border-color:rgba(248,50,50,0.5);">KILL</button>
+            </div>
+        </div>
+
+        <!-- Keyboard Shortcuts -->
+        <div class="panel">
+            <div class="panel-title">Keyboard Shortcuts</div>
+            <div class="shortcut-grid">
+                <span class="shortcut-key" id="key-r">R</span><span class="shortcut-desc">RTL (return to launch)</span>
+                <span class="shortcut-key" id="key-l">L</span><span class="shortcut-desc">LAND (switch to land mode)</span>
+                <span class="shortcut-key" id="key-k">K</span><span class="shortcut-desc">KILL (force disarm)</span>
+                <span class="shortcut-key" id="key-1">1</span><span class="shortcut-desc">Target: Leader only</span>
+                <span class="shortcut-key" id="key-2">2</span><span class="shortcut-desc">Target: Follower only</span>
+                <span class="shortcut-key" id="key-3">3</span><span class="shortcut-desc">Target: Both</span>
+            </div>
+        </div>
+
+        <!-- Telemetry -->
+        <div class="panel">
+            <div class="panel-title">Telemetry</div>
+            <div class="telem-grid">
+                <div class="telem-item">
+                    <div class="telem-label">Peer Dist (m)</div>
+                    <div id="telem-dist" class="telem-val safe">---</div>
+                </div>
+                <div class="telem-item">
+                    <div class="telem-label">Leader Alt (m)</div>
+                    <div id="telem-l-alt" class="telem-val">---</div>
+                </div>
+                <div class="telem-item">
+                    <div class="telem-label">Leader Spd</div>
+                    <div id="telem-l-speed" class="telem-val">---</div>
+                </div>
+                <div class="telem-item">
+                    <div class="telem-label">Follower Spd</div>
+                    <div id="telem-f-speed" class="telem-val">---</div>
+                </div>
+                <div class="telem-item">
+                    <div class="telem-label">Leader Hdg</div>
+                    <div id="telem-l-hdg" class="telem-val">---</div>
+                </div>
+                <div class="telem-item">
+                    <div class="telem-label">Follower Alt (m)</div>
+                    <div id="telem-f-alt" class="telem-val">---</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Network Monitor -->
+        <div class="panel">
+            <div class="panel-title">Network</div>
+            <div class="net-grid">
+                <!-- Leader → GCS -->
+                <div class="net-link">
+                    <span class="net-dot dead" id="net-leader-dot"></span>
+                    <span style="color:var(--leader-color)">Leader</span>
+                    <span class="net-arrow">→</span>
+                    <span>GCS</span>
+                </div>
+                <span class="net-rate" id="net-leader-rate">0.0/s</span>
+                <span class="net-count" id="net-leader-count">0 pkts</span>
+
+                <!-- Follower → GCS -->
+                <div class="net-link">
+                    <span class="net-dot dead" id="net-follower-dot"></span>
+                    <span style="color:var(--follower-color)">Follower</span>
+                    <span class="net-arrow">→</span>
+                    <span>GCS</span>
+                </div>
+                <span class="net-rate" id="net-follower-rate">0.0/s</span>
+                <span class="net-count" id="net-follower-count">0 pkts</span>
+
+                <div class="net-separator"></div>
+
+                <!-- GCS → Leader (cmds) -->
+                <div class="net-link">
+                    <span>GCS</span>
+                    <span class="net-arrow">→</span>
+                    <span style="color:var(--leader-color)">Leader</span>
+                    <span style="font-size:9px;color:var(--text-dim)">(cmd)</span>
+                </div>
+                <span class="net-rate"></span>
+                <span class="net-count" id="net-leader-cmd">0 cmds</span>
+
+                <!-- GCS → Follower (cmds) -->
+                <div class="net-link">
+                    <span>GCS</span>
+                    <span class="net-arrow">→</span>
+                    <span style="color:var(--follower-color)">Follower</span>
+                    <span style="font-size:9px;color:var(--text-dim)">(cmd)</span>
+                </div>
+                <span class="net-rate"></span>
+                <span class="net-count" id="net-follower-cmd">0 cmds</span>
+            </div>
+        </div>
+
+        <!-- Log -->
+        <div class="panel">
+            <div class="panel-title">Log</div>
+            <div id="log-area"></div>
+        </div>
+    </div>
+
+    <!-- ═══ BOTTOM HINT ═══ -->
+    <div style="
+        position:fixed; bottom:12px; left:50%; transform:translateX(-50%); z-index:1000;
+        background:var(--glass); backdrop-filter:blur(12px); border:1px solid var(--glass-border);
+        border-radius:8px; padding:6px 16px; font-size:11px; color:var(--text-dim);
+    ">
+        R=RTL | L=LAND | K=KILL | 1=Leader | 2=Follower | 3=Both
+    </div>
+
+    <script>
+    // ═══════════════════════════════════════════════════════════
+    // Socket.IO + State
+    // ═══════════════════════════════════════════════════════════
+    const socket = io();
+    const HOME_LAT = {{ home_lat }};
+    const HOME_LON = {{ home_lon }};
+    let currentTarget = 'both';
+
+    // Map
+    const map = L.map('map', {zoomControl: false}).setView([HOME_LAT, HOME_LON], 18);
+    L.control.zoom({position: 'bottomleft'}).addTo(map);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 22 }).addTo(map);
+
+    // Markers
+    const leaderIcon = L.divIcon({
+        className: '',
+        html: '<div style="width:16px;height:16px;border-radius:50%;background:#60a5fa;border:2px solid #fff;box-shadow:0 0 8px rgba(96,165,250,0.5);"></div>',
+        iconSize: [16, 16], iconAnchor: [8, 8],
+    });
+    const followerIcon = L.divIcon({
+        className: '',
+        html: '<div style="width:14px;height:14px;border-radius:50%;background:#34d399;border:2px solid #fff;box-shadow:0 0 8px rgba(52,211,153,0.5);"></div>',
+        iconSize: [14, 14], iconAnchor: [7, 7],
+    });
+
+    const leaderMarker = L.marker([HOME_LAT, HOME_LON], {icon: leaderIcon}).addTo(map);
+    const followerMarker = L.marker([HOME_LAT, HOME_LON], {icon: followerIcon}).addTo(map);
+
+    leaderMarker.bindTooltip('Leader', {permanent: true, direction: 'top', offset: [0, -12], className: 'drone-label'});
+    followerMarker.bindTooltip('Follower', {permanent: true, direction: 'top', offset: [0, -10], className: 'drone-label'});
+
+    const labelStyle = document.createElement('style');
+    labelStyle.textContent = `.drone-label { background: rgba(0,0,0,0.6) !important; color: #e2e8f0 !important;
+        border: 1px solid rgba(255,255,255,0.1) !important; font-size: 10px !important; font-weight: 600 !important;
+        padding: 1px 6px !important; border-radius: 4px !important; }`;
+    document.head.appendChild(labelStyle);
+
+    // Trails
+    const leaderTrail = L.polyline([], {color: '#60a5fa', weight: 2, opacity: 0.5}).addTo(map);
+    const followerTrail = L.polyline([], {color: '#34d399', weight: 2, opacity: 0.5}).addTo(map);
+    const MAX_TRAIL = 300;
+
+    // Safety circle
+    const safeCircle = L.circle([HOME_LAT, HOME_LON], {
+        radius: 1, color: '#fbbf24', weight: 1, opacity: 0.4,
+        fillColor: '#fbbf24', fillOpacity: 0.03, dashArray: '6 4',
+    }).addTo(map);
+
+    // ═══════════════════════════════════════════════════════════
+    // Telemetry Handler
+    // ═══════════════════════════════════════════════════════════
+    let autoCenter = true;
+
+    socket.on('state_update', function(d) {
+        // Leader
+        if (d.leader.lat !== 0) {
+            const ll = [d.leader.lat, d.leader.lon];
+            leaderMarker.setLatLng(ll);
+            const pts = leaderTrail.getLatLngs();
+            pts.push(ll);
+            if (pts.length > MAX_TRAIL) pts.shift();
+            leaderTrail.setLatLngs(pts);
+        }
+
+        // Follower
+        if (d.follower.lat !== 0) {
+            const fl = [d.follower.lat, d.follower.lon];
+            followerMarker.setLatLng(fl);
+            const pts = followerTrail.getLatLngs();
+            pts.push(fl);
+            if (pts.length > MAX_TRAIL) pts.shift();
+            followerTrail.setLatLngs(pts);
+            safeCircle.setLatLng(fl);
+        }
+
+        // Auto-center
+        if (autoCenter && d.leader.lat !== 0 && d.follower.lat !== 0) {
+            const bounds = L.latLngBounds(
+                [d.leader.lat, d.leader.lon],
+                [d.follower.lat, d.follower.lon]
+            ).pad(0.5);
+            map.fitBounds(bounds, {maxZoom: 19, animate: true, duration: 0.5});
+        }
+
+        // Connection badges
+        const lBadge = document.getElementById('conn-leader');
+        lBadge.className = 'conn-badge ' + (d.leader_connected ? 'on' : 'off');
+        const fBadge = document.getElementById('conn-follower');
+        fBadge.className = 'conn-badge ' + (d.follower_connected ? 'on' : 'off');
+
+        // Telemetry values
+        const dist = d.peer_dist;
+        const distEl = document.getElementById('telem-dist');
+        distEl.textContent = dist.toFixed(1);
+        distEl.className = 'telem-val ' + (dist < 1 ? 'danger flash' : dist < 2 ? 'danger' : dist < 5 ? 'warning' : 'safe');
+
+        document.getElementById('telem-l-speed').textContent = d.leader.speed.toFixed(1);
+        document.getElementById('telem-f-speed').textContent = d.follower.speed.toFixed(1);
+        document.getElementById('telem-l-alt').textContent = d.leader.alt.toFixed(1);
+        document.getElementById('telem-f-alt').textContent = d.follower.alt.toFixed(1);
+        document.getElementById('telem-l-hdg').textContent = '---';
+
+        // Top bar
+        const pdTop = document.getElementById('peer-dist-top');
+        pdTop.textContent = dist.toFixed(1) + 'm';
+        pdTop.style.color = dist < 2 ? 'var(--danger)' : dist < 5 ? 'var(--warning)' : 'var(--success)';
+        document.getElementById('leader-alt-top').textContent = d.leader.alt.toFixed(1) + 'm';
+        document.getElementById('follower-alt-top').textContent = d.follower.alt.toFixed(1) + 'm';
+
+        // Network monitor
+        if (d.network) {
+            const n = d.network;
+            const lDot = document.getElementById('net-leader-dot');
+            lDot.className = 'net-dot ' + (n.leader_rx_rate > 0 ? 'alive' : 'dead');
+            document.getElementById('net-leader-rate').textContent = n.leader_rx_rate.toFixed(1) + '/s';
+            document.getElementById('net-leader-count').textContent = n.leader_rx_count + ' pkts';
+
+            const fDot = document.getElementById('net-follower-dot');
+            fDot.className = 'net-dot ' + (n.follower_rx_rate > 0 ? 'alive' : 'dead');
+            document.getElementById('net-follower-rate').textContent = n.follower_rx_rate.toFixed(1) + '/s';
+            document.getElementById('net-follower-count').textContent = n.follower_rx_count + ' pkts';
+
+            document.getElementById('net-leader-cmd').textContent = n.leader_cmd_count + ' cmds';
+            document.getElementById('net-follower-cmd').textContent = n.follower_cmd_count + ' cmds';
+        }
+    });
+
+    // ── Log ───────────────────────────────────────────────
+    socket.on('log', function(d) {
+        const area = document.getElementById('log-area');
+        const line = document.createElement('div');
+        const t = new Date().toLocaleTimeString('en-US', {hour12: false});
+        line.textContent = t + ' ' + d.msg;
+        area.appendChild(line);
+        area.scrollTop = area.scrollHeight;
+        while (area.children.length > 50) area.removeChild(area.firstChild);
+    });
+
+    // ═══════════════════════════════════════════════════════════
+    // Commands
+    // ═══════════════════════════════════════════════════════════
+    function setTarget(t) {
+        currentTarget = t;
+        document.querySelectorAll('.target-tab').forEach(el => el.classList.remove('active'));
+        document.getElementById('tab-' + t).classList.add('active');
+        addLog('Target: ' + t.toUpperCase());
+    }
+
+    function cmdRTL() {
+        socket.emit('cmd_rtl', {target: currentTarget});
+        flashKey('key-r');
+    }
+    function cmdLand() {
+        socket.emit('cmd_land', {target: currentTarget});
+        flashKey('key-l');
+    }
+    function cmdKill() {
+        if (confirm('KILL will force-disarm motors. Drone will fall. Continue?')) {
+            socket.emit('cmd_kill', {target: currentTarget});
+            flashKey('key-k');
+        }
+    }
+
+    function flashKey(id) {
+        const el = document.getElementById(id);
+        if (!el) return;
+        el.classList.add('active');
+        setTimeout(() => el.classList.remove('active'), 300);
+    }
+
+    function addLog(msg) {
+        const area = document.getElementById('log-area');
+        const line = document.createElement('div');
+        const t = new Date().toLocaleTimeString('en-US', {hour12: false});
+        line.textContent = t + ' ' + msg;
+        area.appendChild(line);
+        area.scrollTop = area.scrollHeight;
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    // Keyboard Shortcuts
+    // ═══════════════════════════════════════════════════════════
+    document.addEventListener('keydown', function(e) {
+        if (e.target.tagName === 'INPUT') return;
+        const k = e.key.toLowerCase();
+
+        if (k === 'r') { cmdRTL(); }
+        else if (k === 'l') { cmdLand(); }
+        else if (k === 'k') { cmdKill(); }
+        else if (k === '1') { setTarget('leader'); }
+        else if (k === '2') { setTarget('follower'); }
+        else if (k === '3') { setTarget('both'); }
+    });
+
+    // ── Disable auto-center when user pans ────────────────
+    map.on('dragstart', function() { autoCenter = false; });
+    map.on('dblclick', function(e) {
+        autoCenter = true;
+        e.originalEvent.preventDefault();
+    });
+
+    </script>
+</body>
+</html>

@@ -1,0 +1,79 @@
+version: "3.8"
+
+services:
+  # ── Leader Drone ────────────────────────────────────────────
+  leader:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    container_name: leader-drone
+    environment:
+      DRONE_ROLE: leader
+      DRONE_ID: "1"
+      # Peer communication (leader <-> follower)
+      PEER_HOST: follower-drone
+      BROADCAST_PORT: "14560"
+      LISTEN_PORT: "14560"
+      # GCS communication
+      GCS_HOST: gcs
+      GCS_TELEM_PORT: "14570"
+      GCS_CMD_PORT: "14580"
+    networks:
+      - drone_net
+    volumes:
+      - ../sim/output:/app/output
+    stdin_open: true
+    tty: true
+
+  # ── Follower Drone ──────────────────────────────────────────
+  follower:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    container_name: follower-drone
+    environment:
+      DRONE_ROLE: follower
+      DRONE_ID: "2"
+      # Peer communication (follower <-> leader)
+      PEER_HOST: leader-drone
+      BROADCAST_PORT: "14560"
+      LISTEN_PORT: "14560"
+      # GCS communication
+      GCS_HOST: gcs
+      GCS_TELEM_PORT: "14571"
+      GCS_CMD_PORT: "14581"
+    networks:
+      - drone_net
+    volumes:
+      - ../sim/output:/app/output
+    depends_on:
+      - leader
+    stdin_open: true
+    tty: true
+
+  # ── Ground Control Station ──────────────────────────────────
+  gcs:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.gcs
+    container_name: gcs
+    environment:
+      LEADER_HOST: leader-drone
+      FOLLOWER_HOST: follower-drone
+      # Telemetry ports (GCS listens on these)
+      LEADER_TELEM_PORT: "14570"
+      FOLLOWER_TELEM_PORT: "14571"
+      # Command ports (drones listen on these)
+      LEADER_CMD_PORT: "14580"
+      FOLLOWER_CMD_PORT: "14581"
+      WEB_PORT: "5000"
+    networks:
+      - drone_net
+    ports:
+      - "5000:5000"
+    stdin_open: true
+    tty: true
+
+networks:
+  drone_net:
+    driver: bridge

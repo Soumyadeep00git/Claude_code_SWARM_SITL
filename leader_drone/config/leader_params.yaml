@@ -1,0 +1,61 @@
+peer_monitor:
+  ros__parameters:
+    peer_sysid: 2
+    mavlink_udp_port: 14551
+    timeout_s: 5.0
+
+leader_node:
+  ros__parameters:
+    control_rate_hz: 10.0
+
+    # APF safety overlay (Layer 1 attractive disabled for leader)
+    apf:
+      # ── Layer 2: Repulsive (collision avoidance) ────────
+      hard_radius_m: 5.0
+      soft_radius_m: 12.0
+      repel_gain: 2.5
+      closing_speed_scale: 0.5
+      soft_zone_expansion: 1.5
+      lookahead_s: 1.5
+      emergency_radius_m: 2.0
+
+      # ── Layer 4: Ground plane ──────────────────────────
+      min_altitude_m: 3.0
+      critical_altitude_m: 1.5
+      ground_repel_gain: 3.0
+
+      # ── Layer 5: Geofence ─────────────────────────────
+      geofence_enabled: false
+      geofence_radius_m: 100.0
+      geofence_margin_m: 20.0
+      geofence_gain: 2.0
+      geofence_center_lat: 0.0
+      geofence_center_lon: 0.0
+
+      # ── Global limits ─────────────────────────────────
+      max_speed_ms: 3.0
+      max_vertical_speed_ms: 1.5
+      max_accel_ms2: 4.0
+      total_force_cap: 5.0
+
+      # ── Failsafe thresholds ───────────────────────────
+      stale_threshold_s: 2.0
+      deadman_cycles: 20
+      max_position_jump_m: 20.0
+
+rc_relay_node:
+  ros__parameters:
+    follower_sysid: 2
+    follower_compid: 1
+    switch_channel: 7
+    switch_threshold: 1500
+    mavlink_udp_port: 14551
+    override_rate_hz: 10.0
+
+failsafe_node:
+  ros__parameters:
+    hard_radius_m: 5.0
+    clear_multiplier: 1.5
+    peer_timeout_s: 5.0
+    low_battery_pct: 20.0
+    tick_rate_hz: 10.0

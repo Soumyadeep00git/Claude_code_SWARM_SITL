@@ -1,0 +1,18 @@
+FROM python:3.11-slim
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+# ── Python packages ──────────────────────────────────────────
+RUN pip install --no-cache-dir flask flask-socketio
+
+# ── Copy project code ────────────────────────────────────────
+WORKDIR /app
+COPY docker_sim/ /app/docker_sim/
+
+# ── Environment defaults ─────────────────────────────────────
+ENV PYTHONUNBUFFERED=1
+ENV PYTHONPATH=/app
+
+EXPOSE 5000
+
+CMD ["python3", "-m", "docker_sim.gcs_main"]
