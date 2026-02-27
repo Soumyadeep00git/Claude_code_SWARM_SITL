@@ -4,6 +4,7 @@ Supports both live display (TkAgg) and headless GIF capture (Agg).
 """
 
 import os
+import math
 import logging
 from io import BytesIO
 
@@ -86,13 +87,17 @@ class SwarmVisualizer:
                 self._frame_count += 1
                 return
 
+        cos_lat = math.cos(math.radians(self._ref_lat))
+        positions = []  # (dn, de) for auto-scaling
+
         for did, s in sorted(states.items()):
             lat, lon = s.get("lat", 0), s.get("lon", 0)
             # Skip drones without valid GPS
             if lat == 0 and lon == 0:
                 continue
             dn = (lat - self._ref_lat) * 111320.0
-            de = (lon - self._ref_lon) * 111320.0 * 0.8
+            de = (lon - self._ref_lon) * 111320.0 * cos_lat
+            positions.append((dn, de))
 
             color = COLORS[(did - 1) % len(COLORS)]
             self.ax.plot(de, dn, "o", color=color, markersize=12)
@@ -115,9 +120,18 @@ class SwarmVisualizer:
         self.ax.set_aspect("equal")
         self.ax.grid(True, alpha=0.3)
 
-        # Set consistent axis limits so GIF doesn't jump around
-        self.ax.set_xlim(-50, 50)
-        self.ax.set_ylim(-50, 50)
+        # Auto-scale axis limits based on drone positions
+        if positions:
+            dns = [p[0] for p in positions]
+            des = [p[1] for p in positions]
+            cn, ce = sum(dns) / len(dns), sum(des) / len(des)
+            half = max(max(abs(n - cn) for n in dns),
+                       max(abs(e - ce) for e in des), 25.0) + 15.0
+            self.ax.set_xlim(ce - half, ce + half)
+            self.ax.set_ylim(cn - half, cn + half)
+        else:
+            self.ax.set_xlim(-50, 50)
+            self.ax.set_ylim(-50, 50)
 
         if self.headless:
             self._capture_frame()
@@ -145,6 +159,8 @@ class SwarmVisualizer:
 
     def save_gif(self, filename: str = "swarm_output.gif", fps: float = 5.0):
         """Save captured frames as an animated GIF."""
+        if not self.enabled:
+            return None
         if not self._frames:
             log.warning("No frames captured — cannot save GIF")
             return None
@@ -165,6 +181,8 @@ class SwarmVisualizer:
 
     def save_final_frame(self, filename: str = "swarm_final.png"):
         """Save the last frame as a static PNG."""
+        if not self.enabled:
+            return None
         os.makedirs(self.output_dir, exist_ok=True)
         filepath = os.path.join(self.output_dir, filename)
         self.fig.savefig(filepath, dpi=120, bbox_inches="tight")

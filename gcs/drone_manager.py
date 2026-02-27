@@ -54,14 +54,18 @@ class DroneManager:
             if PROJECT_DIR not in pp:
                 env["PYTHONPATH"] = PROJECT_DIR + (":" + pp if pp else "")
 
-            proc = subprocess.Popen(
-                [sys.executable, run_script],
-                cwd=PROJECT_DIR,
-                stdout=log_file,
-                stderr=subprocess.STDOUT,
-                preexec_fn=os.setsid,
-                env=env,
-            )
+            try:
+                proc = subprocess.Popen(
+                    [sys.executable, run_script],
+                    cwd=PROJECT_DIR,
+                    stdout=log_file,
+                    stderr=subprocess.STDOUT,
+                    preexec_fn=os.setsid,
+                    env=env,
+                )
+            except Exception as e:
+                log_file.close()
+                return {"ok": False, "error": f"Failed to launch drone {drone_id}: {e}"}
             self._processes[drone_id] = proc
             self._log_files[drone_id] = log_file
 

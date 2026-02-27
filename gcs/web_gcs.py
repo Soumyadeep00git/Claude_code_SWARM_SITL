@@ -26,8 +26,9 @@ from config import (
     AGENT_BASE_PORT, AGENT_PORT_STEP,
     COMMS_TIMEOUT_S, WEB_GCS_PORT,
     DOCKER_MODE, MESH_SIM_ENABLED,
+    GHOST_PRUNE_TIMEOUT_S,
 )
-from comms.protocol import make_msg, parse_msg
+from comms.protocol import make_msg, parse_msg, encode_msg
 from comms.udp_node import UDPNode
 from gcs.state_collector import StateCollector
 from gcs.command_dispatcher import CommandDispatcher
@@ -443,6 +444,16 @@ class WebGCS:
         while self.running:
             time.sleep(0.25)
 
+            # Prune ghost drones that have been silent too long
+            pruned = self.collector.prune_stale(GHOST_PRUNE_TIMEOUT_S)
+            if pruned:
+                with self._known_lock:
+                    for did in pruned:
+                        self.known_drones.discard(did)
+                active_ids = set(self.collector.get_all_states().keys())
+                self.network_agg.prune(active_ids)
+                log.info("Pruned ghost drones: %s", pruned)
+
             states = self.collector.get_all_states()
             stale = self.collector.get_stale_drones(COMMS_TIMEOUT_S)
             process_status = self.drone_mgr.get_all_status()
@@ -482,7 +493,7 @@ class WebGCS:
         PEER_HEARTBEATs. Kept active for resilience."""
         relay_msg = dict(msg)
         relay_msg["src"] = 0  # Mark as GCS so agents count as heartbeat
-        raw = json.dumps(relay_msg).encode("utf-8")
+        raw = encode_msg(relay_msg)
 
         with self._block_lock:
             blocked = set(self.blocked_drones)
@@ -549,11 +560,20 @@ class WebGCS:
         if not self.running:
             return
         self.running = False
-        self.drone_mgr.kill_all()
-        with self._logger_lock:
-            self.logger.save_metadata()
-            self.logger.close()
-        self.udp.close()
+        try:
+            self.drone_mgr.kill_all()
+        except Exception as e:
+            log.error("Error killing drones: %s", e)
+        try:
+            with self._logger_lock:
+                self.logger.save_metadata()
+                self.logger.close()
+        except Exception as e:
+            log.error("Error closing logger: %s", e)
+        try:
+            self.udp.close()
+        except Exception as e:
+            log.error("Error closing UDP: %s", e)
         log.info("Web GCS stopped")
 
 

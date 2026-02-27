@@ -64,6 +64,11 @@ def make_msg(msg_type: str, src: int, data: dict) -> bytes:
     return json.dumps(msg).encode("utf-8")
 
 
+def encode_msg(msg: dict) -> bytes:
+    """Serialize an existing message dict to UTF-8 JSON bytes."""
+    return json.dumps(msg).encode("utf-8")
+
+
 def parse_msg(raw: bytes) -> dict | None:
     """Deserialize bytes to a message dict. Returns None on bad data."""
     try:

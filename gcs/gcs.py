@@ -18,18 +18,19 @@ CLI commands:
     quit                            — Shutdown GCS
 """
 
-import json
 import time
 import signal
 import logging
+import traceback
 import threading
 
 from config import (
     NUM_DRONES, GCS_PORT, GCS_HOST,
     AGENT_BASE_PORT, AGENT_PORT_STEP,
     COMMS_TIMEOUT_S, GCS_LOOP_HZ,
+    GHOST_PRUNE_TIMEOUT_S,
 )
-from comms.protocol import parse_msg
+from comms.protocol import parse_msg, encode_msg
 from comms.udp_node import UDPNode
 from gcs.state_collector import StateCollector
 from gcs.command_dispatcher import CommandDispatcher
@@ -64,6 +65,7 @@ class GCS:
         self.logger = FlightLogger(**kwargs_log)
 
         self._loop_period = 1.0 / GCS_LOOP_HZ
+        self._last_stale_warning: dict[int, float] = {}
         if orchestrator_port:
             log.info("GCS started on port %d for %d drones (relay → orchestrator:%d)",
                      GCS_PORT, num_drones, orchestrator_port)
@@ -79,36 +81,49 @@ class GCS:
             cli.start()
 
         while self.running:
-            t0 = time.time()
+            try:
+                t0 = time.time()
 
-            # 1. RECEIVE — collect state reports and alerts
-            for raw, addr in self.udp.recv_all():
-                msg = parse_msg(raw)
-                if msg is None:
-                    continue
+                # 1. RECEIVE — collect state reports and alerts
+                for raw, addr in self.udp.recv_all():
+                    msg = parse_msg(raw)
+                    if msg is None:
+                        continue
 
-                if msg["type"] == "STATE_REPORT":
-                    self.collector.update(msg["src"], msg["data"], msg.get("ts", time.time()))
-                    self._relay_to_peers(msg, msg["src"])
-                    self.logger.log_state(msg["src"], msg["data"])
+                    if msg["type"] == "STATE_REPORT":
+                        self.collector.update(msg["src"], msg["data"], msg.get("ts", time.time()))
+                        self._relay_to_peers(msg, msg["src"])
+                        self.logger.log_state(msg["src"], msg["data"])
 
-                elif msg["type"] == "ALERT":
-                    self._handle_alert(msg)
-                    self.logger.log_alert(msg["src"], msg["data"])
+                    elif msg["type"] == "ALERT":
+                        self._handle_alert(msg)
+                        self.logger.log_alert(msg["src"], msg["data"])
 
-            # 2. CHECK — detect drones that stopped reporting
-            stale = self.collector.get_stale_drones(COMMS_TIMEOUT_S)
-            for did in stale:
-                log.warning("Drone %d: no contact (stale)", did)
+                # 2. CHECK — detect drones that stopped reporting (throttled)
+                now = time.time()
+                stale = self.collector.get_stale_drones(COMMS_TIMEOUT_S)
+                for did in stale:
+                    last = self._last_stale_warning.get(did, 0)
+                    if now - last >= 10.0:
+                        log.warning("Drone %d: no contact (stale)", did)
+                        self._last_stale_warning[did] = now
 
-            # 3. VISUALIZE
-            self.viz.update(self.collector.get_all_states())
+                # 2b. PRUNE — remove ghost drones
+                pruned = self.collector.prune_stale(GHOST_PRUNE_TIMEOUT_S)
+                for did in pruned:
+                    self._last_stale_warning.pop(did, None)
+                    log.info("Pruned ghost drone %d", did)
 
-            # 4. SLEEP
-            elapsed = time.time() - t0
-            sleep_time = self._loop_period - elapsed
-            if sleep_time > 0:
-                time.sleep(sleep_time)
+                # 3. VISUALIZE
+                self.viz.update(self.collector.get_all_states())
+
+                # 4. SLEEP
+                elapsed = time.time() - t0
+                sleep_time = self._loop_period - elapsed
+                if sleep_time > 0:
+                    time.sleep(sleep_time)
+            except Exception:
+                log.error("GCS loop error:\n%s", traceback.format_exc())
 
     def stop(self):
         if not self.running:
@@ -128,11 +143,12 @@ class GCS:
     def _relay_to_peers(self, msg: dict, source_id: int):
         """Relay a STATE_REPORT to all other drone agents for peer awareness.
         Rewrites src to 0 (GCS) so it counts as a GCS heartbeat.
+        Only relays to drones that have reported state (avoids blind sends).
         Also relays to orchestrator if configured."""
         relay_msg = dict(msg)
         relay_msg["src"] = 0  # Mark as from GCS so agents update their heartbeat
-        raw = json.dumps(relay_msg).encode("utf-8")
-        for i in range(1, self.num_drones + 1):
+        raw = encode_msg(relay_msg)
+        for i in list(self.collector.get_all_states().keys()):
             if i != source_id:
                 port = AGENT_BASE_PORT + i * AGENT_PORT_STEP
                 self.udp.send(raw, GCS_HOST, port)

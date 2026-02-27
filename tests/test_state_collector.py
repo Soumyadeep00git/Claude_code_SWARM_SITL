@@ -69,3 +69,35 @@ class TestStateCollector:
         assert 1 in valid
         assert 3 in valid
         assert 2 not in valid
+
+    def test_remove_drone(self):
+        sc = StateCollector(num_drones=3)
+        sc.update(1, {"lat": -35.360}, time.time())
+        sc.update(2, {"lat": -35.370}, time.time())
+        sc.remove_drone(1)
+        assert sc.get_state(1) is None
+        assert sc.get_state(2) is not None
+        # Removing non-existent drone is a no-op
+        sc.remove_drone(99)
+
+    def test_prune_stale(self):
+        sc = StateCollector(num_drones=3)
+        now = time.time()
+        sc.update(1, {"lat": -35.360}, now)        # fresh
+        sc.update(2, {"lat": -35.370}, now - 20)    # stale
+        sc.update(3, {"lat": -35.380}, now - 20)    # stale
+        pruned = sc.prune_stale(15.0)
+        assert sorted(pruned) == [2, 3]
+        assert sc.get_state(1) is not None
+        assert sc.get_state(2) is None
+        assert sc.get_state(3) is None
+
+    def test_prune_returns_pruned_ids(self):
+        sc = StateCollector(num_drones=2)
+        now = time.time()
+        sc.update(1, {"lat": -35.360}, now - 30)
+        sc.update(2, {"lat": -35.370}, now)
+        result = sc.prune_stale(15.0)
+        assert result == [1]
+        # Second prune returns empty (already removed)
+        assert sc.prune_stale(15.0) == []

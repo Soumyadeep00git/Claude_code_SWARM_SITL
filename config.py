@@ -44,6 +44,7 @@ COMMS_TIMEOUT_S = 5.0         # Seconds before declaring comms lost
 LOW_BATTERY_PCT = 0               # 0 = disabled (SITL battery is simulated)
 PEER_STALE_TIMEOUT_S = 5.0           # Seconds before declaring a peer dead
 COMMS_RECOVERY_TIMEOUT_S = 30.0      # Max time to rejoin after comms restored
+GHOST_PRUNE_TIMEOUT_S = 15.0         # Remove drones silent > 3× comms timeout
 
 # ── MPPI Controller ──────────────────────────────────────
 MPPI_CONFIG = {

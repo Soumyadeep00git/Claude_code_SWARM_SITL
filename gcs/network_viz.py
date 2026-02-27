@@ -22,6 +22,16 @@ class NetworkAggregator:
         if mesh_stats:
             self._mesh_data[drone_id] = mesh_stats
 
+    def remove_drone(self, drone_id: int):
+        """Remove a drone from mesh data."""
+        self._mesh_data.pop(drone_id, None)
+
+    def prune(self, active_ids: set[int]):
+        """Remove drones not in active_ids."""
+        to_remove = [did for did in self._mesh_data if did not in active_ids]
+        for did in to_remove:
+            del self._mesh_data[did]
+
     def get_topology_payload(self, stale_ids: list[int] | None = None) -> dict:
         """Build frontend-ready network topology payload.
         Excludes stale drones from link/routing data (they have no comms).

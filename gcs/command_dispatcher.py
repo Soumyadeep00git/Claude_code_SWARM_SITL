@@ -30,9 +30,9 @@ class CommandDispatcher:
 
     def _send_to_all(self, msg_type: str, data: dict,
                      drone_ids: set[int] | None = None):
-        if drone_ids:
+        if drone_ids is not None:
             targets = drone_ids
-        elif self._known_drones:
+        elif self._known_drones is not None:
             targets = set(self._known_drones)  # Copy to avoid mutation
         else:
             targets = set(range(1, self.num_drones + 1))

@@ -4,7 +4,7 @@ import json
 import time
 import pytest
 from comms.protocol import (
-    make_msg, parse_msg, ALL_TYPES,
+    make_msg, parse_msg, encode_msg, ALL_TYPES,
     TAKEOFF_CMD, LAND_CMD, STATE_REPORT, FORMATION_CMD,
     PEER_HEARTBEAT, PROXIMITY_ALERT, RL_MODE_CMD,
 )
@@ -87,3 +87,17 @@ class TestParseMsg:
         parsed = parse_msg(raw)
         assert parsed is not None
         assert parsed["extra"] == 42
+
+
+class TestEncodeMsg:
+    def test_encode_msg_roundtrip(self):
+        msg = {"type": "STATE_REPORT", "src": 1, "ts": 1234567890.0,
+               "data": {"lat": -35.363, "lon": 149.165, "alt": 10.0}}
+        raw = encode_msg(msg)
+        assert isinstance(raw, bytes)
+        parsed = parse_msg(raw)
+        assert parsed is not None
+        assert parsed["type"] == msg["type"]
+        assert parsed["src"] == msg["src"]
+        assert parsed["ts"] == msg["ts"]
+        assert parsed["data"]["lat"] == msg["data"]["lat"]

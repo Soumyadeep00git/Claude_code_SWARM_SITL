@@ -52,16 +52,9 @@ class FlightLogger:
         self._agg_writer = csv.writer(self._agg_file)
         self._agg_writer.writerow(CSV_HEADER)
 
-        # Per-drone CSVs
+        # Per-drone CSVs (lazily created on first log_state)
         self._drone_files = {}
         self._drone_writers = {}
-        for i in range(1, num_drones + 1):
-            path = os.path.join(output_dir, f"drone_{i}_log.csv")
-            f = open(path, "w", newline="")
-            w = csv.writer(f)
-            w.writerow(CSV_HEADER)
-            self._drone_files[i] = f
-            self._drone_writers[i] = w
 
         log.info("Flight logger started — output: %s", output_dir)
 
@@ -99,15 +92,24 @@ class FlightLogger:
                 now - self._last_flush_time >= self._flush_interval_s):
             self._flush_buffer()
 
+    def _ensure_drone_writer(self, drone_id: int):
+        """Lazily create per-drone CSV on first use."""
+        if drone_id not in self._drone_writers:
+            path = os.path.join(self.output_dir, f"drone_{drone_id}_log.csv")
+            f = open(path, "w", newline="")
+            w = csv.writer(f)
+            w.writerow(CSV_HEADER)
+            self._drone_files[drone_id] = f
+            self._drone_writers[drone_id] = w
+
     def _flush_buffer(self):
         """Write all buffered rows to CSV files."""
         if not self._buffer:
             return
         for drone_id, row in self._buffer:
             self._agg_writer.writerow(row)
-            w = self._drone_writers.get(drone_id)
-            if w:
-                w.writerow(row)
+            self._ensure_drone_writer(drone_id)
+            self._drone_writers[drone_id].writerow(row)
         self._agg_file.flush()
         for f in self._drone_files.values():
             f.flush()
