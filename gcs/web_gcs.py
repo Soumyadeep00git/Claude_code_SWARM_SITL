@@ -419,6 +419,11 @@ class WebGCS:
                             with self._logger_lock:
                                 self.logger.log_state(src, msg["data"])
 
+                        elif msg["type"] in ("SLOT_BID", "SLOT_TIEBREAK",
+                                               "SLOT_CONFIRM"):
+                            # Relay negotiation messages to all peers
+                            self._relay_to_peers(msg, msg["src"])
+
                         elif msg["type"] == "PROXIMITY_ALERT":
                             self.socketio.emit("proximity_alert", {
                                 "drone_id": msg["src"],

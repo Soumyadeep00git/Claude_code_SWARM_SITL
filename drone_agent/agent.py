@@ -34,6 +34,7 @@ from drone_agent.state import DroneState, PeerTable
 from drone_agent.local_planner import LocalPlanner, RL_MODE
 from drone_agent.global_planner import GlobalPlanner
 from drone_agent.failsafe import FailsafeManager, SwarmState
+from drone_agent.slot_negotiator import SlotNegotiator
 from drone_agent.geo import gps_to_ned_2d
 
 if MESH_SIM_ENABLED:
@@ -70,6 +71,7 @@ class DroneAgent:
 
         self.local_planner = LocalPlanner(self.conn)
         self.global_planner = GlobalPlanner(drone_id, NUM_DRONES)
+        self.slot_negotiator = SlotNegotiator(drone_id, NUM_DRONES)
         self.failsafe = FailsafeManager(
             drone_id, self.local_planner, self.conn,
             self.global_planner,
@@ -116,7 +118,30 @@ class DroneAgent:
             self.state.leader_id = self.failsafe.elect_leader()
             self.state.alive_count = len(self.failsafe._alive_peers)
 
-            # 3b. BROADCAST PROXIMITY_ALERT — cooperative collision avoidance
+            # 3b. SLOT NEGOTIATION — tick state machine
+            if self.slot_negotiator.is_active:
+                if fs_active:
+                    # Failsafe triggered during negotiation — abort, use static
+                    self.slot_negotiator.reset()
+                    self.global_planner.slot = self.drone_id - 1
+                    self.state.formation_slot = self.global_planner.slot
+                    log.warning("Drone %d: negotiation aborted (failsafe), static slot %d",
+                                self.drone_id, self.global_planner.slot)
+                else:
+                    result = self.slot_negotiator.tick(t0)
+                    if result is not None:
+                        self.global_planner.slot = result
+                        self.state.formation_slot = result
+                        log.info("Drone %d: negotiated slot %d",
+                                 self.drone_id, result)
+                    # Send negotiation messages
+                    for msg_type, payload in self.slot_negotiator.pop_messages():
+                        raw = make_msg(msg_type, self.drone_id, payload)
+                        self.udp.send(raw, GCS_HOST, GCS_PORT)
+                        if self._peer_targets:
+                            self.udp.send_to_multiple(raw, self._peer_targets)
+
+            # 3c. BROADCAST PROXIMITY_ALERT — cooperative collision avoidance
             if self.failsafe._proximity_peers and t0 - self._last_prox_alert_time >= 1.0:
                 alert_data = self.failsafe.build_proximity_alert(self.peers, self.state)
                 if alert_data:
@@ -140,7 +165,8 @@ class DroneAgent:
                 self.local_planner.update_peer_gps(
                     self.state.lat, self.state.lon, self.state.alt, peer_gps)
 
-                if self.global_planner.formation != "NONE" and has_gps:
+                if (self.global_planner.formation != "NONE" and has_gps
+                        and not self.slot_negotiator.is_active):
                     # Gather peer NED positions for formation controller
                     peer_ned = []
                     peer_vel_ned = []
@@ -320,7 +346,18 @@ class DroneAgent:
 
         elif t == "FORMATION_CMD":
             self.global_planner.set_formation(d)
-            self.state.formation_slot = self.global_planner.slot
+            # Start distributed slot negotiation instead of static assignment
+            has_gps = (self.state.lat != 0.0 or self.state.lon != 0.0)
+            if has_gps:
+                ref_lat = d.get("ref_lat", 0.0)
+                ref_lon = d.get("ref_lon", 0.0)
+                ref_alt = d.get("ref_alt", 0.0)
+                my_n, my_e = gps_to_ned_2d(
+                    self.state.lat, self.state.lon, ref_lat, ref_lon)
+                my_ned = (my_n, my_e, 0.0)
+            else:
+                my_ned = (0.0, 0.0, 0.0)
+            self.slot_negotiator.start(d, my_ned, time.time())
 
         elif t == "SWARM_WAYPOINT_CMD":
             if self.global_planner.formation != "NONE":
@@ -374,6 +411,9 @@ class DroneAgent:
         elif t == "MESH_CONFIG_CMD":
             if MESH_SIM_ENABLED and hasattr(self.udp, 'set_range'):
                 self.udp.set_range(float(d.get("range_m", MESH_SIM_RANGE_M)))
+
+        elif t in ("SLOT_BID", "SLOT_TIEBREAK", "SLOT_CONFIRM"):
+            self.slot_negotiator.handle_message(t, d)
 
         elif t == "PROXIMITY_ALERT":
             # Cooperative collision avoidance — peer is warning us

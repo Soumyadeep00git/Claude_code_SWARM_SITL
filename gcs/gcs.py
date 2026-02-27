@@ -99,6 +99,10 @@ class GCS:
                         self._handle_alert(msg)
                         self.logger.log_alert(msg["src"], msg["data"])
 
+                    elif msg["type"] in ("SLOT_BID", "SLOT_TIEBREAK",
+                                         "SLOT_CONFIRM"):
+                        self._relay_to_peers(msg, msg["src"])
+
                 # 2. CHECK — detect drones that stopped reporting (throttled)
                 now = time.time()
                 stale = self.collector.get_stale_drones(COMMS_TIMEOUT_S)

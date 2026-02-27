@@ -19,6 +19,59 @@ from drone_agent.geo import gps_to_ned_2d
 log = logging.getLogger(__name__)
 
 
+def compute_slot_offset(slot: int, num_drones: int, formation: str,
+                        spacing: float, heading_rad: float) -> tuple[float, float]:
+    """Compute (north_m, east_m) NED offset for a given slot in a formation.
+
+    This is the canonical offset function used by both GlobalPlanner and
+    SlotNegotiator.  Local offsets are rotated by heading_rad.
+    """
+    s = slot
+    sp = spacing
+    n = num_drones
+
+    # Compute local (unrotated) offset
+    if formation == "LINE":
+        local_n = 0.0
+        local_e = (s - (n - 1) / 2.0) * sp
+    elif formation == "V":
+        if s == 0:
+            local_n = 0.0
+            local_e = 0.0
+        else:
+            side = 1 if s % 2 == 1 else -1
+            rank = (s + 1) // 2
+            local_n = -rank * sp * cos(pi / 6)
+            local_e = side * rank * sp * sin(pi / 6)
+    elif formation == "COLUMN":
+        local_n = -s * sp
+        local_e = 0.0
+    elif formation == "DIAMOND":
+        if s == 0:
+            local_n = sp
+            local_e = 0.0
+        elif s == 1:
+            local_n = 0.0
+            local_e = -sp
+        elif s == 2:
+            local_n = 0.0
+            local_e = sp
+        elif s == 3:
+            local_n = -sp
+            local_e = 0.0
+        else:
+            local_n = -((s - 3) + 2) * sp
+            local_e = 0.0
+    else:
+        local_n = 0.0
+        local_e = 0.0
+
+    # Rotate by formation heading
+    north = local_n * cos(heading_rad) - local_e * sin(heading_rad)
+    east = local_n * sin(heading_rad) + local_e * cos(heading_rad)
+    return (north, east)
+
+
 class GlobalPlanner:
     """Formation offset calculator for one drone."""
 
@@ -72,65 +125,10 @@ class GlobalPlanner:
         return (target_lat, target_lon, target_alt)
 
     def _compute_slot_offset(self) -> tuple[float, float]:
-        """
-        Returns (north_m, east_m) offset for this drone's slot.
-        Offset is in LOCAL frame, then rotated by formation heading.
-        """
-        s = self.slot
-        sp = self.spacing
-        n = self.num_drones
-        hdg = radians(self.ref_heading)
-
-        # Compute local (unrotated) offset
-        if self.formation == "LINE":
-            # Side-by-side perpendicular to heading
-            local_n = 0.0
-            local_e = (s - (n - 1) / 2.0) * sp
-
-        elif self.formation == "V":
-            # V shape: slot 0 at the tip
-            if s == 0:
-                local_n = 0.0
-                local_e = 0.0
-            else:
-                side = 1 if s % 2 == 1 else -1
-                rank = (s + 1) // 2
-                local_n = -rank * sp * cos(pi / 6)  # 30-degree V angle
-                local_e = side * rank * sp * sin(pi / 6)
-
-        elif self.formation == "COLUMN":
-            # Single file along heading
-            local_n = -s * sp
-            local_e = 0.0
-
-        elif self.formation == "DIAMOND":
-            # Diamond: slot 0 front, then left/right, then back
-            if s == 0:
-                local_n = sp
-                local_e = 0.0
-            elif s == 1:
-                local_n = 0.0
-                local_e = -sp
-            elif s == 2:
-                local_n = 0.0
-                local_e = sp
-            elif s == 3:
-                local_n = -sp
-                local_e = 0.0
-            else:
-                # Extra drones: extend backward
-                local_n = -((s - 3) + 2) * sp
-                local_e = 0.0
-
-        else:
-            local_n = 0.0
-            local_e = 0.0
-
-        # Rotate by formation heading
-        north = local_n * cos(hdg) - local_e * sin(hdg)
-        east = local_n * sin(hdg) + local_e * cos(hdg)
-
-        return (north, east)
+        """Returns (north_m, east_m) offset for this drone's slot."""
+        return compute_slot_offset(
+            self.slot, self.num_drones, self.formation,
+            self.spacing, radians(self.ref_heading))
 
     def reslot(self, alive_ids: set[int], leader_id: int, peers=None):
         """

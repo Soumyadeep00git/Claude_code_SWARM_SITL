@@ -93,6 +93,14 @@ RL_MAX_PEERS = 4            # Max peer slots in observation vector
 RL_OBS_DIM = 3 + 3 + 3 + RL_MAX_PEERS * 3  # own_pos + own_vel + goal + peers = 21
 RL_MAX_SPEED = 3.0          # Clamp RL output velocity (m/s)
 
+# ── Slot Negotiation ────────────────────────────────────
+SLOT_NEG_CORNER_PHASE_MS = 100       # Phase 0: corner bid duration
+SLOT_NEG_MIDDLE_PHASE_MS = 150       # Phase 1: middle bid duration
+SLOT_NEG_TIEBREAK_PHASE_MS = 100     # Phase 2: tiebreak duration
+SLOT_NEG_CONFIRM_PHASE_MS = 150      # Phase 3: confirm duration
+SLOT_NEG_EQUIDISTANT_M = 0.5        # Distance difference below = equidistant
+SLOT_NEG_REDUNDANT_SENDS = 3        # Broadcasts per phase for loss tolerance
+
 # ── Formation defaults ─────────────────────────────────────
 DEFAULT_SPACING_M = 5.0
 DEFAULT_FORMATION = "LINE"

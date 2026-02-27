@@ -45,11 +45,17 @@ PROXIMITY_ALERT = "PROXIMITY_ALERT"        # Drone -> Drones: cooperative collis
 # RL controller
 RL_MODE_CMD = "RL_MODE_CMD"                # GCS -> Drone: toggle RL controller
 
+# Slot negotiation (Drone <-> Drone, P2P + GCS relay)
+SLOT_BID = "SLOT_BID"                      # "I want slot X" (distance + nonce)
+SLOT_TIEBREAK = "SLOT_TIEBREAK"            # "My nonce is N for contested slot"
+SLOT_CONFIRM = "SLOT_CONFIRM"              # "I own slot X (final)"
+
 ALL_TYPES = {
     TAKEOFF_CMD, LAND_CMD, WAYPOINT_CMD, VELOCITY_CMD,
     FORMATION_CMD, SWARM_WAYPOINT_CMD, STATE_REPORT, ALERT,
     PEER_HEARTBEAT, NEIGHBOR_AD, MESH_FORWARD, MESH_CONFIG_CMD,
     SAFETY_CONFIG_CMD, PROXIMITY_ALERT, RL_MODE_CMD,
+    SLOT_BID, SLOT_TIEBREAK, SLOT_CONFIRM,
 }
 
 
