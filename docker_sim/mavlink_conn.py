@@ -1,6 +1,7 @@
 """pymavlink connection wrapper for dockerized SITL."""
 
 import logging
+import math
 import time
 
 from pymavlink import mavutil
@@ -70,6 +71,10 @@ class MavlinkConn:
         log.info("drone_id=%d: takeoff to %.1fm", self.drone_id, alt_m)
 
     def send_velocity_ned(self, vn: float, ve: float, vd: float):
+        if not (math.isfinite(vn) and math.isfinite(ve) and math.isfinite(vd)):
+            log.warning("NaN/Inf in velocity command (vn=%.2f ve=%.2f vd=%.2f) — zeroing",
+                        vn, ve, vd)
+            vn, ve, vd = 0.0, 0.0, 0.0
         self.conn.mav.set_position_target_local_ned_send(
             0, self.sysid, self.compid,
             mavutil.mavlink.MAV_FRAME_LOCAL_NED,

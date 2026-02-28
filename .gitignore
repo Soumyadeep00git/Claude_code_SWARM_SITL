@@ -4,8 +4,6 @@ __pycache__/
 *.log
 .vscode/
 .claude/
-sim/output/
-sim/logs/
-/output/
+output/
 *.gif
 *.csv

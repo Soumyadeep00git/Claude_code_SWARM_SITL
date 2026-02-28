@@ -21,7 +21,7 @@ services:
     networks:
       - drone_net
     volumes:
-      - ../sim/output:/app/output
+      - ../output:/app/output
     stdin_open: true
     tty: true
 
@@ -45,7 +45,7 @@ services:
     networks:
       - drone_net
     volumes:
-      - ../sim/output:/app/output
+      - ../output:/app/output
     depends_on:
       - leader
     stdin_open: true

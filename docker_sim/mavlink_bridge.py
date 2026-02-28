@@ -18,18 +18,43 @@ import time
 log = logging.getLogger(__name__)
 
 # Simple binary wire format for position state:
-# lat, lon, alt, vx, vy, vz, heading, timestamp (all doubles)
-_PACK_FMT = "!8d"
+# lat, lon, alt, vx, vy, vz, heading, timestamp, guidance_mode (all doubles)
+# guidance_mode: 0=NONE, 1=TRACKING, 2=CATCHUP, 3=EVASION, 4=FAILSAFE
+_PACK_FMT = "!9d"
 _PACK_SIZE = struct.calcsize(_PACK_FMT)
 
-# GCS command format: 1 byte command code
-# 1=RTL, 2=LAND, 3=KILL
-_CMD_FMT = "!B"
-_CMD_SIZE = struct.calcsize(_CMD_FMT)
+# GCS command format: variable length, first byte is command code.
+# Simple commands (1 byte):  RTL, LAND, KILL, FOLLOW, HOVER
+# Extended commands:
+#   CMD_WASD:     "!Bff"  (cmd, vn, ve)     → 9 bytes
+#   CMD_WAYPOINT: "!Bdd"  (cmd, lat, lon)   → 17 bytes
+#   CMD_SPEED:    "!Bf"   (cmd, speed)       → 5 bytes
 
 CMD_RTL = 1
 CMD_LAND = 2
 CMD_KILL = 3
+CMD_FOLLOW = 4   # follower: enter FOLLOW (guidance) mode
+CMD_HOVER = 5    # enter HOVER (hold position) mode
+CMD_WASD = 10    # leader: velocity NED (payload: vn, ve floats)
+CMD_WAYPOINT = 11  # leader: fly to waypoint (payload: lat, lon doubles)
+CMD_SPEED = 12   # leader: set operating speed (payload: speed float)
+
+_CMD_SIMPLE_SIZE = 1
+_CMD_WASD_FMT = "!Bff"
+_CMD_WAYPOINT_FMT = "!Bdd"
+_CMD_SPEED_FMT = "!Bf"
+
+_CMD_SIZES = {
+    _CMD_SIMPLE_SIZE: "simple",
+    struct.calcsize(_CMD_WASD_FMT): "wasd_or_speed",
+    struct.calcsize(_CMD_WAYPOINT_FMT): "waypoint",
+}
+
+CMD_NAMES = {
+    CMD_RTL: "RTL", CMD_LAND: "LAND", CMD_KILL: "KILL",
+    CMD_FOLLOW: "FOLLOW", CMD_HOVER: "HOVER",
+    CMD_WASD: "WASD", CMD_WAYPOINT: "WAYPOINT", CMD_SPEED: "SPEED",
+}
 
 
 class MavlinkBridge:
@@ -37,7 +62,7 @@ class MavlinkBridge:
 
     def __init__(self, peer_host: str, broadcast_port: int, listen_port: int,
                  gcs_host: str = "", gcs_telem_port: int = 0,
-                 gcs_cmd_port: int = 0):
+                 gcs_cmd_port: int = 0, stale_timeout: float = 5.0):
         self.peer_host = peer_host
         self.broadcast_port = broadcast_port
         self.listen_port = listen_port
@@ -50,15 +75,19 @@ class MavlinkBridge:
         # Latest peer state + receive timestamp for staleness detection
         self.peer_state: dict | None = None
         self._peer_recv_time: float = 0.0
-        self._peer_stale_timeout: float = 5.0  # seconds
+        self._peer_stale_timeout: float = stale_timeout
         self._peer_lock = threading.Lock()
+
+        # Guidance mode code broadcast with telemetry
+        self._guidance_mode: float = 0.0
+        self._guidance_mode_lock = threading.Lock()
 
         # Own state to broadcast
         self._own_state: dict | None = None
         self._own_lock = threading.Lock()
 
-        # Latest GCS command (consumed by main loop)
-        self._pending_cmd: int | None = None
+        # GCS command queue — stores dicts: {'cmd': int, ...payload}
+        self._cmd_queue: list[dict] = []
         self._cmd_lock = threading.Lock()
 
         # Packet counters
@@ -109,6 +138,11 @@ class MavlinkBridge:
         with self._own_lock:
             self._own_state = pos_data
 
+    def set_guidance_mode(self, code: int):
+        """Set guidance mode code for broadcast (0=NONE,1=TRACKING,2=CATCHUP,3=EVASION,4=FAILSAFE)."""
+        with self._guidance_mode_lock:
+            self._guidance_mode = float(code)
+
     def get_peer_state(self) -> dict | None:
         """Get latest peer position data, or None if stale/no data."""
         with self._peer_lock:
@@ -118,12 +152,17 @@ class MavlinkBridge:
                 return None
             return self.peer_state
 
-    def get_pending_command(self) -> int | None:
-        """Get and consume the latest GCS command, or None."""
+    def get_pending_command(self) -> dict | None:
+        """Get and consume the next GCS command dict, or None.
+
+        Returns dict like {'cmd': CMD_RTL} or {'cmd': CMD_WASD, 'vn': 1.0, 've': 0.0}.
+        Commands are queued so rapid-fire GCS inputs are never lost.
+        Call in a loop until None to drain all pending commands.
+        """
         with self._cmd_lock:
-            cmd = self._pending_cmd
-            self._pending_cmd = None
-            return cmd
+            if self._cmd_queue:
+                return self._cmd_queue.pop(0)
+            return None
 
     def get_stats(self) -> dict:
         """Return packet counts and rates for monitoring."""
@@ -172,6 +211,8 @@ class MavlinkBridge:
                 state = self._own_state
 
             if state is not None:
+                with self._guidance_mode_lock:
+                    gmode = self._guidance_mode
                 data = struct.pack(
                     _PACK_FMT,
                     state.get('lat', 0.0),
@@ -182,6 +223,7 @@ class MavlinkBridge:
                     state.get('vz', 0.0),
                     state.get('heading', 0.0),
                     time.time(),
+                    gmode,
                 )
 
                 # Send to peer
@@ -226,6 +268,7 @@ class MavlinkBridge:
                         'vy': vals[4],
                         'vz': vals[5],
                         'heading': vals[6],
+                        'guidance_mode': int(vals[8]),
                     }
                     if peer['lat'] != 0.0 or peer['lon'] != 0.0:
                         with self._peer_lock:
@@ -241,7 +284,7 @@ class MavlinkBridge:
         sock.close()
 
     def _cmd_listen_loop(self):
-        """Receive GCS commands via UDP."""
+        """Receive GCS commands via UDP (variable-length protocol)."""
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         sock.bind(("0.0.0.0", self.gcs_cmd_port))
@@ -251,14 +294,15 @@ class MavlinkBridge:
 
         while self._running:
             try:
-                data, addr = sock.recvfrom(64)
-                if len(data) == _CMD_SIZE:
-                    cmd = struct.unpack(_CMD_FMT, data)[0]
-                    cmd_names = {CMD_RTL: "RTL", CMD_LAND: "LAND", CMD_KILL: "KILL"}
+                data, addr = sock.recvfrom(256)
+                if len(data) < 1:
+                    continue
+                cmd_msg = self._parse_command(data)
+                if cmd_msg is not None:
                     log.info("GCS command received: %s from %s",
-                             cmd_names.get(cmd, f"?{cmd}"), addr)
+                             CMD_NAMES.get(cmd_msg['cmd'], f"?{cmd_msg['cmd']}"), addr)
                     with self._cmd_lock:
-                        self._pending_cmd = cmd
+                        self._cmd_queue.append(cmd_msg)
                     with self._stats_lock:
                         self._rx_gcs_cmd += 1
             except socket.timeout:
@@ -267,3 +311,36 @@ class MavlinkBridge:
                 if self._running:
                     time.sleep(0.5)
         sock.close()
+
+    @staticmethod
+    def _parse_command(data: bytes) -> dict | None:
+        """Parse a variable-length command packet."""
+        if len(data) < 1:
+            return None
+        cmd = data[0]
+        n = len(data)
+
+        # Simple 1-byte commands
+        if n == 1 and cmd in (CMD_RTL, CMD_LAND, CMD_KILL, CMD_FOLLOW, CMD_HOVER):
+            return {'cmd': cmd}
+
+        # WASD: "!Bff" → 9 bytes
+        wasd_size = struct.calcsize(_CMD_WASD_FMT)
+        if n == wasd_size and cmd == CMD_WASD:
+            _, vn, ve = struct.unpack(_CMD_WASD_FMT, data)
+            return {'cmd': CMD_WASD, 'vn': vn, 've': ve}
+
+        # SPEED: "!Bf" → 5 bytes
+        speed_size = struct.calcsize(_CMD_SPEED_FMT)
+        if n == speed_size and cmd == CMD_SPEED:
+            _, speed = struct.unpack(_CMD_SPEED_FMT, data)
+            return {'cmd': CMD_SPEED, 'speed': speed}
+
+        # WAYPOINT: "!Bdd" → 17 bytes
+        wp_size = struct.calcsize(_CMD_WAYPOINT_FMT)
+        if n == wp_size and cmd == CMD_WAYPOINT:
+            _, lat, lon = struct.unpack(_CMD_WAYPOINT_FMT, data)
+            return {'cmd': CMD_WAYPOINT, 'lat': lat, 'lon': lon}
+
+        log.warning("Unknown command packet: cmd=%d len=%d", cmd, n)
+        return None

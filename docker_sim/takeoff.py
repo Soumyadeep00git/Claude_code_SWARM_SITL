@@ -12,11 +12,14 @@ log = logging.getLogger(__name__)
 class TakeoffManager:
     """State machine: wait GPS -> GUIDED -> ARM -> TAKEOFF -> detect altitude."""
 
-    def __init__(self, conn: MavlinkConn, target_alt: float):
+    def __init__(self, conn: MavlinkConn, target_alt: float,
+                 max_time: float = 120.0):
         self.conn = conn
         self.target_alt = target_alt
         self._last_cmd_time = 0.0
         self._takeoff_sent = False
+        self._start_time = time.time()
+        self._max_time = max_time
         self.complete = False
 
     def tick(self, has_gps: bool, mode: str, armed: bool, alt: float) -> bool:
@@ -24,6 +27,13 @@ class TakeoffManager:
             return True
 
         now = time.time()
+
+        # Overall timeout
+        if now - self._start_time > self._max_time:
+            log.error("Takeoff TIMEOUT after %.0fs — aborting",
+                      self._max_time)
+            self.complete = True
+            return True
 
         if now - self._last_cmd_time < 2.0:
             if self._takeoff_sent and alt >= self.target_alt * TAKEOFF_COMPLETE_FRAC:

@@ -1,37 +1,49 @@
 """Follower drone container entry point.
 
 Launches ArduCopter SITL, connects, starts MAVLink bridge,
-waits for leader state, takes off, runs the follower guidance loop,
-then shuts down when leader completes RTL.
+then enters the mission-dispatch loop:
+    1. check_status()    — GPS, heartbeat, leader snapshot
+    2. get_mission()     — RC commands decide mission, failsafe override
+    3. execute_mission() — dispatch to per-mission handler
+
+Missions: IDLE → TAKEOFF → HOVER ↔ FOLLOW → RTL/LAND/KILL
+
+RC has topmost authority. Global failsafe (GPS, geofence, altitude)
+runs every tick. Follow-specific failsafe (leader stale, leader
+geofence, catchup timeout) only runs inside FOLLOW.
 """
 
 import logging
-import math
 import os
 import signal
 import sys
 import time
 
-# Add project root so follower_drone package is importable
+# Add project root so guidance_lib is importable
 _PROJECT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-sys.path.insert(0, os.path.join(_PROJECT_DIR, "follower_drone"))
+sys.path.insert(0, _PROJECT_DIR)
 
 from docker_sim.config import (
-    DRONE_ID, TAKEOFF_ALT_M, CONTROL_HZ,
+    DRONE_ID, CONTROL_HZ,
     PEER_HOST, BROADCAST_PORT, LISTEN_PORT,
     GCS_HOST, GCS_TELEM_PORT, GCS_CMD_PORT,
     FOLLOW_OFFSET_N, FOLLOW_OFFSET_E, FOLLOW_OFFSET_D,
-    FEEDFORWARD_GAIN, METERS_PER_DEG_LAT, OUTPUT_DIR,
-    HOME_LAT, HOME_LON,
+    OUTPUT_DIR, HOME_LAT, HOME_LON,
+    PEER_STALE_TIMEOUT,
 )
 from docker_sim.sitl_launcher import SITLLauncher
 from docker_sim.mavlink_conn import MavlinkConn
-from docker_sim.takeoff import TakeoffManager
-from docker_sim.mavlink_bridge import MavlinkBridge, CMD_RTL, CMD_LAND, CMD_KILL
+from docker_sim.mavlink_bridge import MavlinkBridge
+from docker_sim.follower_missions import (
+    MissionContext, check_status, get_mission, execute_mission, sleep_tick,
+)
 
-from follower_drone.guidance import GuidanceConfig, GuidanceState, compute_guidance
-from follower_drone.geo_utils import ned_to_gps, gps_to_ned
-from follower_drone.command_smoother import CommandSmoother
+from guidance_lib import (
+    GuidanceConfig, GuidanceState, compute_guidance,
+    CommandSmoother,
+)
+from failsafe_lib import FailsafeState, load_config as load_failsafe_config
+from guidance_lib.target import TargetComputer
 
 logging.basicConfig(
     level=logging.INFO,
@@ -45,23 +57,27 @@ _running = True
 
 def _signal_handler(sig, frame):
     global _running
-    log.info("Interrupted — shutting down...")
+    log.info("Interrupted -- shutting down...")
     _running = False
 
 
 class FollowerController:
-    """3-mode hard-switched guidance loop (same logic as sim/follower_loop.py)."""
+    """3-mode hard-switched guidance with modular safety.
 
-    def __init__(self, conn: MavlinkConn, geofence_m: float = 200.0):
+    Key differences from old version:
+      - Leader state passed DIRECTLY each tick (None = stale/missing)
+      - Smoother resets on failsafe (no residual velocity)
+      - TargetComputer handles offset + feedforward cleanly
+    """
+
+    def __init__(self, conn: MavlinkConn, cfg: GuidanceConfig):
         self.conn = conn
-        self.cfg = GuidanceConfig(
-            home_lat=HOME_LAT,
-            home_lon=HOME_LON,
-            geofence_radius_m=geofence_m,
-        )
+        self.cfg = cfg
         self.state = GuidanceState()
-        self.smoother = CommandSmoother()
+        self.smoother = CommandSmoother(dt=1.0 / CONTROL_HZ)
+        self.target_computer = TargetComputer()
 
+        # Own state
         self.my_lat = 0.0
         self.my_lon = 0.0
         self.my_alt = 0.0
@@ -69,13 +85,7 @@ class FollowerController:
         self.my_ve = 0.0
         self.my_vd = 0.0
 
-        self.leader_lat = 0.0
-        self.leader_lon = 0.0
-        self.leader_alt = 0.0
-        self.leader_vn = 0.0
-        self.leader_ve = 0.0
-
-    def update_own_state(self, pos):
+    def update_own_state(self, pos: dict):
         self.my_lat = pos['lat']
         self.my_lon = pos['lon']
         self.my_alt = pos['alt']
@@ -83,50 +93,44 @@ class FollowerController:
         self.my_ve = pos['vy']
         self.my_vd = pos['vz']
 
-    def update_leader_state(self, pos):
-        self.leader_lat = pos['lat']
-        self.leader_lon = pos['lon']
-        self.leader_alt = pos['alt']
-        self.leader_vn = pos['vx']
-        self.leader_ve = pos['vy']
+    def tick(self, leader: dict | None) -> dict | None:
+        """Run one guidance tick.
 
-    def tick(self) -> dict | None:
+        Args:
+            leader: Leader state dict {lat, lon, alt, vx, vy} or None if stale.
+
+        Returns:
+            Guidance result dict, or None if own state not ready.
+        """
         if self.my_lat == 0.0 and self.my_lon == 0.0:
             return None
-        if self.leader_lat == 0.0 and self.leader_lon == 0.0:
+
+        # Use leader data directly -- no stale cache
+        if leader is None or (leader['lat'] == 0.0 and leader['lon'] == 0.0):
             return None
 
-        # Compute target = leader + NED offset
-        target_lat, target_lon = ned_to_gps(
-            FOLLOW_OFFSET_N, FOLLOW_OFFSET_E,
-            self.leader_lat, self.leader_lon)
-        target_alt = self.leader_alt - FOLLOW_OFFSET_D
+        leader_lat = leader['lat']
+        leader_lon = leader['lon']
+        leader_alt = leader['alt']
+        leader_vn = leader['vx']
+        leader_ve = leader['vy']
 
-        # Feedforward shift
-        ff = self.cfg.ff_gain
-        if ff > 0.01 and abs(self.leader_lat) > 1e-6:
-            cos_lat = math.cos(math.radians(self.leader_lat))
-            target_lat += ff * self.leader_vn * 0.1 / METERS_PER_DEG_LAT
-            target_lon += (ff * self.leader_ve * 0.1
-                           / (METERS_PER_DEG_LAT * max(cos_lat, 1e-6)))
+        # Compute target = leader + offset + feedforward
+        target_lat, target_lon, target_alt = self.target_computer.compute(
+            leader_lat, leader_lon, leader_alt,
+            leader_vn, leader_ve,
+            FOLLOW_OFFSET_N, FOLLOW_OFFSET_E, FOLLOW_OFFSET_D,
+            ff_gain=self.cfg.ff_gain, dt=1.0 / CONTROL_HZ)
 
         # 3-mode guidance
         result = compute_guidance(
             my_lat=self.my_lat, my_lon=self.my_lon, my_alt=self.my_alt,
             my_vn=self.my_vn, my_ve=self.my_ve, my_vd=self.my_vd,
-            peer_lat=self.leader_lat, peer_lon=self.leader_lon,
-            peer_alt=self.leader_alt,
-            peer_vn=self.leader_vn, peer_ve=self.leader_ve,
+            peer_lat=leader_lat, peer_lon=leader_lon, peer_alt=leader_alt,
+            peer_vn=leader_vn, peer_ve=leader_ve,
             goal_lat=target_lat, goal_lon=target_lon, goal_alt=target_alt,
             cfg=self.cfg, state=self.state,
         )
-
-        # Handle failsafe — zero velocity already set by guidance
-        if result['mode'] == 'FAILSAFE':
-            self.conn.send_velocity_ned(0, 0, 0)
-            log.warning("FAILSAFE: %s (peer_dist=%.1f)",
-                        result['flags'], result['peer_dist'])
-            return result
 
         # Smooth & send
         sm_vn, sm_ve, sm_vd = self.smoother.filter(
@@ -139,6 +143,11 @@ class FollowerController:
                      result['w_tracking'], result['w_catchup'])
 
         return result
+
+    def reset(self):
+        """Reset all internal state. Call on failsafe transitions."""
+        self.smoother.reset()
+        self.state = GuidanceState()
 
 
 # ── Main ─────────────────────────────────────────────────────
@@ -154,10 +163,16 @@ def main():
         PEER_HOST, BROADCAST_PORT, LISTEN_PORT,
         gcs_host=GCS_HOST, gcs_telem_port=GCS_TELEM_PORT,
         gcs_cmd_port=GCS_CMD_PORT,
+        stale_timeout=PEER_STALE_TIMEOUT,
     )
+    # Load failsafe config (single source of truth)
+    fs_cfg = load_failsafe_config(home_lat=HOME_LAT, home_lon=HOME_LON)
+
+    # Guidance config — max_altitude_m sourced from failsafe config
+    cfg = GuidanceConfig(max_altitude_m=fs_cfg.max_altitude_m)
 
     try:
-        # Phase 1: Launch SITL
+        # ── Phase 1: Launch SITL ─────────────────────────────
         log.info("=" * 50)
         log.info("Phase 1: Launching SITL")
         log.info("=" * 50)
@@ -166,132 +181,53 @@ def main():
         if not launcher.wait_ready():
             raise TimeoutError("SITL port not reachable")
 
-        # Phase 2: Connect
+        # ── Phase 2: Connect ─────────────────────────────────
         log.info("=" * 50)
         log.info("Phase 2: Connecting pymavlink")
         log.info("=" * 50)
         conn = MavlinkConn(timeout=60)
 
-        # Phase 3: Start bridge + wait GPS + wait for leader
+        # ── Phase 3: Start bridge ────────────────────────────
         log.info("=" * 50)
-        log.info("Phase 3: Waiting for GPS + leader")
+        log.info("Phase 3: Starting bridge")
         log.info("=" * 50)
         bridge.start()
 
-        gps_deadline = time.time() + 90.0
-        has_gps = False
-        has_leader = False
-        while _running and time.time() < gps_deadline:
-            data = conn.drain_latest()
-            pos = data.get('position')
-            if pos and pos['lat'] != 0 and not has_gps:
-                log.info("GPS fix: (%.7f, %.7f)", pos['lat'], pos['lon'])
-                has_gps = True
-
-            peer = bridge.get_peer_state()
-            if peer and not has_leader:
-                log.info("Leader detected: (%.7f, %.7f)", peer['lat'], peer['lon'])
-                has_leader = True
-
-            if has_gps and has_leader:
-                break
-            time.sleep(0.5)
-
-        if not has_gps:
-            raise TimeoutError("GPS fix timeout")
-        if not has_leader:
-            log.warning("No leader detected yet — proceeding anyway")
-
-        # Phase 4: Takeoff
+        # ── Phase 4: Mission-dispatch loop ───────────────────
         log.info("=" * 50)
-        log.info("Phase 4: Takeoff to %.0fm", TAKEOFF_ALT_M)
+        log.info("Phase 4: Mission loop (IDLE)")
         log.info("=" * 50)
-        takeoff = TakeoffManager(conn, TAKEOFF_ALT_M)
 
-        while _running:
-            data = conn.drain_latest()
-            pos = data.get('position')
-            hb = data.get('heartbeat')
-
-            if pos:
-                bridge.update_own_state(pos)
-
-            done = takeoff.tick(
-                has_gps=bool(pos and pos['lat'] != 0),
-                mode=hb['mode'] if hb else '',
-                armed=hb['armed'] if hb else False,
-                alt=pos['alt'] if pos else 0.0,
-            )
-            if done:
-                break
-            time.sleep(1.0 / CONTROL_HZ)
-
-        log.info("Airborne!")
-
-        # Phase 5: Follower guidance loop
-        log.info("=" * 50)
-        log.info("Phase 5: Following leader")
-        log.info("=" * 50)
-        ctrl = FollowerController(conn)
-        no_leader_count = 0
+        ctrl = FollowerController(conn, cfg)
+        ctx = MissionContext(
+            conn=conn,
+            bridge=bridge,
+            cfg=cfg,
+            fs_cfg=fs_cfg,
+            fs_state=FailsafeState(),
+            ctrl=ctrl,
+        )
 
         while _running:
             tick_start = time.time()
 
-            # Own state
-            data = conn.drain_latest()
-            pos = data.get('position')
-            if pos:
-                bridge.update_own_state(pos)
-                ctrl.update_own_state(pos)
+            # 1. Check status
+            status = check_status(ctx)
 
-            # Check for GCS commands
-            gcs_cmd = bridge.get_pending_command()
-            if gcs_cmd == CMD_RTL:
-                log.info("GCS command: RTL")
-                conn.set_mode("RTL")
-                break
-            elif gcs_cmd == CMD_LAND:
-                log.info("GCS command: LAND")
-                conn.set_mode("LAND")
-                break
-            elif gcs_cmd == CMD_KILL:
-                log.info("GCS command: KILL (force disarm)")
-                conn.force_disarm()
-                break
+            # 2. Get mission (RC commands + failsafe override)
+            mission = get_mission(status, ctx)
 
-            # Leader state from bridge
-            peer = bridge.get_peer_state()
-            if peer:
-                ctrl.update_leader_state(peer)
-                no_leader_count = 0
-            else:
-                no_leader_count += 1
+            # 3. Execute mission
+            _running = execute_mission(mission, status, ctx)
 
-            # Run guidance
-            result = ctrl.tick()
+            # Sleep remainder of tick
+            sleep_tick(tick_start)
 
-            # Failsafe triggered — RTL
-            if result and result['mode'] == 'FAILSAFE':
-                log.warning("Guidance failsafe triggered: %s — RTL",
-                            result['flags'])
-                break
-
-            # If leader lost for 60s, assume mission over → RTL
-            if no_leader_count > CONTROL_HZ * 60:
-                log.warning("Leader lost for 60s — RTL")
-                break
-
-            elapsed = time.time() - tick_start
-            sleep_time = (1.0 / CONTROL_HZ) - elapsed
-            if sleep_time > 0:
-                time.sleep(sleep_time)
-
-        # Phase 6: Shutdown
+        # ── Phase 5: Shutdown ────────────────────────────────
         log.info("=" * 50)
-        log.info("Phase 6: Shutdown (RTL)")
+        log.info("Phase 5: Shutdown")
         log.info("=" * 50)
-        if conn:
+        if conn and not ctx.rtl_sent:
             conn.set_mode("RTL")
 
         land_deadline = time.time() + 60.0

@@ -45,6 +45,9 @@ FOLLOW_OFFSET_N = -5.0
 FOLLOW_OFFSET_E = 3.0
 FOLLOW_OFFSET_D = 0.0
 
+# ── Peer networking (staleness) ────────────────────────────
+PEER_STALE_TIMEOUT = float(os.environ.get("PEER_STALE_TIMEOUT", "5.0"))
+
 # ── Feedforward ─────────────────────────────────────────────
 FEEDFORWARD_GAIN = 0.8
 

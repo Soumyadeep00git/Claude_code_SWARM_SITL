@@ -5,15 +5,24 @@
   3-mode hard-switched guidance controller for leader-follower drone formation.
   Pure Python. Zero external dependencies. Works with any autopilot.
 
+  Modular architecture: each concern (mode selection, velocity, output safety)
+  is a separate class that can be tested independently.
+
+  Failsafe monitoring is in the separate failsafe_lib package.
+
 ================================================================================
   FILES
 ================================================================================
 
-  guidance.py        - Core algorithm. Mode selection + velocity computation.
+  guidance.py        - Orchestrator. Delegates to modular classes below.
+  target.py          - TargetComputer: leader + offset + feedforward -> goal.
+  mode_selector.py   - ModeSelector: EVASION > CATCHUP > TRACKING switch.
+  velocity.py        - VelocityComputer: per-mode velocity computation.
+  output_safety.py   - OutputSafety: speed cap, rate limiter, altitude floor/ceiling.
+  command_smoother.py - CommandSmoother: EMA filter with hover deadband.
   geo_utils.py       - GPS <-> NED flat-earth coordinate conversions.
-  command_smoother.py - First-order EMA filter with hover deadband.
-  config.yaml        - All tunable parameters in one file. Edit this.
-  __init__.py        - Package exports (optional, for import convenience).
+  config.yaml        - Guidance tunable parameters. Edit this.
+  __init__.py        - Package exports.
 
 ================================================================================
   REQUIREMENTS
@@ -21,7 +30,7 @@
 
   Python 3.10+
   No pip install needed. All imports are Python standard library (math, time,
-  dataclasses).
+  dataclasses, enum).
 
 ================================================================================
   WHAT IT DOES
@@ -44,9 +53,37 @@
 
   Safety features applied to all modes:
     - Altitude floor (soft ramp + hard cutoff)
+    - Altitude ceiling (push down if too high)
     - Horizontal speed cap
     - Rate limiter (max acceleration per tick)
     - NaN/Inf guard on all inputs and outputs
+
+================================================================================
+  ARCHITECTURE
+================================================================================
+
+  Main loop (docker_sim/follower_main.py):
+    1. READ own state from autopilot
+    2. READ leader state from bridge (None if stale)
+    3. FAILSAFE check (failsafe_lib) — runs FIRST, before guidance
+       - Own GPS valid?
+       - Leader data fresh?
+       - Leader inside geofence?
+       - Follower inside geofence?
+       - Altitude ceiling?
+       - Catchup timeout?
+    4. COMPUTE target (TargetComputer) — leader + offset + feedforward
+    5. GUIDE (compute_guidance) — mode select + velocity
+    6. SMOOTH (CommandSmoother) — EMA filter
+    7. SEND velocity to autopilot
+
+  Key design decisions:
+    - Leader state passed DIRECTLY each tick (None = stale)
+    - No cached stale data in controller
+    - Smoother resets on failsafe (no residual velocity)
+    - One-shot RTL (not re-sent every tick)
+    - Command queue (not single overwrite)
+    - All failsafe checks are in failsafe_lib (see failsafe_lib/readme.txt)
 
 ================================================================================
   INPUT
@@ -89,9 +126,9 @@
     vd          float   Velocity down command (m/s)    --+
     speed       float   Horizontal speed magnitude (m/s)
     peer_dist   float   Distance to leader (meters)
-    mode        str     'TRACKING', 'CATCHUP', 'EVASION', or 'FAILSAFE'
-    emergency   bool    True if critical proximity, altitude, or failsafe
-    flags       dict    Warning flags (see FAILSAFES section below)
+    mode        str     'TRACKING', 'CATCHUP', or 'EVASION'
+    emergency   bool    True if critical proximity or altitude issue
+    flags       dict    Warning flags (NO_OWN_GPS, PROX_CRITICAL, etc.)
     w_evasion   float   1.0 if evasion active, else 0.0
     w_tracking  float   1.0 if tracking active, else 0.0
     w_catchup   float   1.0 if catchup active, else 0.0
@@ -103,81 +140,80 @@
 
   from guidance_lib import (
       GuidanceConfig, GuidanceState, compute_guidance,
-      ned_to_gps, CommandSmoother,
+      ned_to_gps, CommandSmoother, TargetComputer,
   )
+  from failsafe_lib import FailsafeState, compute_failsafe, load_config
 
   # ---- Setup (once at startup) ----
 
-  # Option A: Load from config.yaml (recommended)
-  #   pip install pyyaml
-  import yaml
-  with open('config.yaml') as f:
-      params = yaml.safe_load(f)
-  cfg = GuidanceConfig(**params['guidance'])
-  OFFSET_N = params['offset']['north_m']
-  OFFSET_E = params['offset']['east_m']
-  smoother = CommandSmoother(
-      alpha=params['smoother']['alpha'],
-      deadband=params['smoother']['deadband'],
-  )
+  fs_cfg = load_config(home_lat=-35.363, home_lon=149.165)
+  cfg = GuidanceConfig(max_altitude_m=fs_cfg.max_altitude_m)
+  state = GuidanceState()
+  smoother = CommandSmoother()
+  target_computer = TargetComputer()
+  fs_state = FailsafeState()
 
-  # Option B: Inline (no yaml dependency)
-  # cfg = GuidanceConfig(kp=0.9, safety_dist_m=2.0, home_lat=..., home_lon=...)
-
-  state = GuidanceState()           # persists across ticks (rate limiter memory)
-  smoother = CommandSmoother()      # EMA output filter
-
-  # Desired formation offset: 5m behind leader, 3m to the right
   OFFSET_N = -5.0   # meters north (negative = behind)
   OFFSET_E =  3.0   # meters east  (positive = right)
-
 
   # ---- Control loop (call at ~10Hz) ----
 
   while running:
-      # Get latest data from your system (MAVLink, ROS, DJI SDK, etc.)
       my_lat, my_lon, my_alt = get_follower_gps()
       my_vn, my_ve, my_vd   = get_follower_velocity()
-      leader_lat, leader_lon, leader_alt = get_leader_gps()
-      leader_vn, leader_ve   = get_leader_velocity()
+      leader = get_leader_state()  # None if stale
 
-      # Step 1: Compute goal = leader position + offset
-      goal_lat, goal_lon = ned_to_gps(OFFSET_N, OFFSET_E,
-                                       leader_lat, leader_lon)
-      goal_alt = leader_alt
+      # Step 1: Failsafe check (runs FIRST)
+      fs = compute_failsafe(
+          own_lat=my_lat, own_lon=my_lon, own_alt=my_alt,
+          own_gps_valid=True,
+          peer_lat=leader['lat'] if leader else 0.0,
+          peer_lon=leader['lon'] if leader else 0.0,
+          peer_gps_valid=bool(leader),
+          leader_fresh=leader is not None,
+          cfg=fs_cfg, state=fs_state,
+      )
+      if not fs['safe']:
+          send_velocity_command(0, 0, 0)
+          if fs['action'] == 'RTL':
+              trigger_rtl()
+              break
+          continue  # HOVER
 
-      # Step 2: Run guidance
+      # Step 2: Compute target = leader + offset + feedforward
+      goal_lat, goal_lon, goal_alt = target_computer.compute(
+          leader['lat'], leader['lon'], leader['alt'],
+          leader['vn'], leader['ve'],
+          OFFSET_N, OFFSET_E, 0.0,
+          ff_gain=cfg.ff_gain, dt=0.1,
+      )
+
+      # Step 3: Run guidance
       result = compute_guidance(
           my_lat, my_lon, my_alt,
           my_vn, my_ve, my_vd,
-          leader_lat, leader_lon, leader_alt,
-          leader_vn, leader_ve,
+          leader['lat'], leader['lon'], leader['alt'],
+          leader['vn'], leader['ve'],
           goal_lat, goal_lon, goal_alt,
           cfg, state,
       )
 
-      # Step 3: Smooth output
+      # Step 4: Smooth & send
       vn, ve, vd = smoother.filter(result['vn'], result['ve'], result['vd'])
-
-      # Step 4: Send to your autopilot
       send_velocity_command(vn, ve, vd)
 
-      # Step 5: Handle failsafes
-      if result['mode'] == 'FAILSAFE':
-          # Guidance returned zero velocity. You must decide what to do:
-          #   LEADER_TOO_FAR   -> leader is > 50m away, consider RTL
-          #   GEOFENCE         -> follower left the safe area, RTL immediately
-          #   CATCHUP_TIMEOUT  -> stuck chasing for > 30s, hover or RTL
-          print(f"FAILSAFE: {result['flags']}")
-          trigger_rtl()  # your platform's return-to-launch
-          break
+      sleep(0.1)
 
-      # Step 6: Monitor
-      print(f"Mode: {result['mode']}  Dist: {result['peer_dist']:.1f}m")
-      if result['emergency']:
-          print(f"WARNING: {result['flags']}")
+================================================================================
+  FAILSAFES
+================================================================================
 
-      sleep(0.1)  # 10Hz
+  All failsafe checks are handled by failsafe_lib. See failsafe_lib/readme.txt
+  for the full list of checks, priority order, and configuration.
+
+  The guidance module no longer contains embedded failsafe logic. When own GPS
+  is invalid, compute_guidance() returns zero velocity with a NO_OWN_GPS flag,
+  but does not escalate to DEADMAN or RTL — that is failsafe_lib's job.
 
 ================================================================================
   TUNABLE PARAMETERS (GuidanceConfig)
@@ -197,52 +233,23 @@
   max_accel              4.0       Rate limiter, max delta per tick (m/s)
   min_altitude_m         3.0       Soft altitude floor (ramp-up push)
   critical_altitude_m    1.5       Hard altitude floor (full push-up)
+  max_altitude_m         100.0     Altitude ceiling (sourced from failsafe_lib/config.yaml)
   deadzone_m             0.5       No tracking output below this error
-  max_peer_dist_m        50.0      Hover if leader is farther than this (m)
-  geofence_radius_m      200.0     Hover if follower is this far from home (m)
-  home_lat               0.0       Home latitude for geofence (degrees)
-  home_lon               0.0       Home longitude for geofence (degrees)
-  catchup_timeout_ticks  300       Hover after this many CATCHUP ticks (300 = 30s at 10Hz)
 
 ================================================================================
-  FAILSAFES
+  MODULAR CLASSES
 ================================================================================
 
-  Three failsafes that return mode='FAILSAFE', emergency=True, and zero
-  velocity. When triggered, the caller must decide what to do (RTL, land, etc).
+  Each concern is a separate class for independent testing:
 
-  1. LEADER_TOO_FAR (flag)
-     Triggers when: peer_dist > max_peer_dist_m (default 50m)
-     Meaning:       Leader is too far away. Follower can't keep up or leader
-                    data is wrong. Hovering prevents chasing a phantom.
-     Action:        RTL or hover and wait for leader to return.
+  TargetComputer      — Leader + offset + feedforward -> target (target.py)
+  ModeSelector        — EVASION > CATCHUP > TRACKING switch (mode_selector.py)
+  VelocityComputer    — Per-mode velocity computation (velocity.py)
+  OutputSafety        — Speed cap, rate limiter, altitude clamps (output_safety.py)
+  CommandSmoother     — EMA filter with hover deadband (command_smoother.py)
 
-  2. GEOFENCE (flag)
-     Triggers when: follower is > geofence_radius_m (default 200m) from home.
-     Meaning:       Follower has drifted outside the safe operating area.
-     Action:        RTL immediately.
-     NOTE:          Requires home_lat and home_lon in GuidanceConfig.
-                    If home is (0,0), geofence is disabled.
-
-  3. CATCHUP_TIMEOUT (flag)
-     Triggers when: follower has been in CATCHUP mode for >
-                    catchup_timeout_ticks consecutive ticks (default 300 = 30s).
-     Meaning:       Follower has been sprinting for 30 seconds and still can't
-                    close the gap. Leader is faster or data is stale.
-     Action:        RTL or hover.
-     NOTE:          Counter resets when follower enters TRACKING or EVASION.
-                    Set catchup_timeout_ticks=0 to disable.
-
-  Checking for failsafes in your code:
-
-      result = compute_guidance(...)
-      if result['mode'] == 'FAILSAFE':
-          if 'LEADER_TOO_FAR' in result['flags']:
-              # ...
-          if 'GEOFENCE' in result['flags']:
-              # ...
-          if 'CATCHUP_TIMEOUT' in result['flags']:
-              # ...
+  compute_guidance() uses these internally and is backward compatible.
+  You can also use the classes directly for custom architectures.
 
 ================================================================================
   EXTRA: compute_escape()
@@ -252,11 +259,14 @@
   the peer. No tracking, no catchup. Use this if you only need proximity
   avoidance (e.g. on the leader side, or as a failsafe fallback).
 
-  from guidance_lib import compute_escape
+  from guidance_lib import compute_escape, GuidanceState
+
+  escape_state = GuidanceState()  # REQUIRED — no global fallback
 
   result = compute_escape(
       my_lat, my_lon, my_alt,
       peer_lat, peer_lon, peer_alt,
+      state=escape_state,
   )
   # result['vn'], result['ve'], result['vd'] = escape velocity
 
@@ -270,6 +280,8 @@
   - The CommandSmoother is optional but recommended. It prevents jitter
     when the drone is near the goal (hover deadband = 0.2 m/s).
   - goal_lat/lon is NOT the leader's position. It is leader + your offset.
-    You compute it with ned_to_gps() before calling compute_guidance().
+    Use TargetComputer.compute() or ned_to_gps() before calling compute_guidance().
   - The function handles bad data gracefully: NaN, Inf, zero GPS, stale
     data all produce safe zero-velocity output with appropriate flags.
+  - compute_escape() no longer uses a global state variable. Pass your own
+    GuidanceState instance for rate limiting to work across ticks.

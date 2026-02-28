@@ -16,7 +16,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # ── Python packages ──────────────────────────────────────────
-RUN pip3 install --no-cache-dir pymavlink matplotlib pillow
+RUN pip3 install --no-cache-dir pymavlink matplotlib pillow pyyaml
 
 # ── Create non-root user (ArduPilot install script refuses root) ─
 RUN useradd -m -s /bin/bash ardupilot \
@@ -48,12 +48,10 @@ USER root
 # ── Copy project code ────────────────────────────────────────
 WORKDIR /app
 COPY docker_sim/ /app/docker_sim/
-COPY follower_drone/follower_drone/ /app/follower_drone/follower_drone/
+COPY guidance_lib/ /app/guidance_lib/
+COPY failsafe_lib/ /app/failsafe_lib/
 COPY docker/entrypoint.sh /app/entrypoint.sh
 RUN chmod +x /app/entrypoint.sh
-
-# Ensure follower_drone is a proper package
-RUN touch /app/follower_drone/__init__.py
 
 # ── Environment defaults ─────────────────────────────────────
 ENV PYTHONUNBUFFERED=1

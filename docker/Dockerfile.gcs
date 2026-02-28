@@ -3,11 +3,13 @@ FROM python:3.11-slim
 ENV DEBIAN_FRONTEND=noninteractive
 
 # ── Python packages ──────────────────────────────────────────
-RUN pip install --no-cache-dir flask flask-socketio
+RUN pip install --no-cache-dir flask flask-socketio pyyaml
 
 # ── Copy project code ────────────────────────────────────────
 WORKDIR /app
 COPY docker_sim/ /app/docker_sim/
+COPY guidance_lib/ /app/guidance_lib/
+COPY failsafe_lib/ /app/failsafe_lib/
 
 # ── Environment defaults ─────────────────────────────────────
 ENV PYTHONUNBUFFERED=1

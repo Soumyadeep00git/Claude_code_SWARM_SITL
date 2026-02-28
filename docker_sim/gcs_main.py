@@ -1,9 +1,11 @@
 """GCS (Ground Control Station) container entry point.
 
-Does NOT run SITL or guidance — only:
+Does NOT run SITL or guidance -- only:
   1. Receives telemetry from leader and follower via UDP
   2. Serves a Flask + SocketIO web UI
-  3. Forwards keyboard commands (KILL, LAND, RTL) to drones via UDP
+  3. Forwards commands to drones via UDP:
+     - Leader: WASD velocity, waypoint, speed, hover, RTL/LAND/KILL
+     - Follower: FOLLOW, HOVER, RTL/LAND/KILL (RC mock)
 """
 
 import logging
@@ -40,21 +42,32 @@ FOLLOWER_CMD_PORT = int(os.environ.get("FOLLOWER_CMD_PORT", "14581"))
 HOME_LAT = float(os.environ.get("HOME_LAT", "-35.3632620"))
 HOME_LON = float(os.environ.get("HOME_LON", "149.1652370"))
 WEB_PORT = int(os.environ.get("WEB_PORT", "5000"))
+GEOFENCE_RADIUS_M = float(os.environ.get("GEOFENCE_RADIUS_M", "200.0"))
+SAFETY_DIST_M = float(os.environ.get("SAFETY_DIST_M", "1.0"))
+CATCHUP_DIST_M = float(os.environ.get("CATCHUP_DIST_M", "8.0"))
 
 METERS_PER_DEG_LAT = 111320.0
 
 # ── Wire format (must match mavlink_bridge.py) ────────────────
-# lat, lon, alt, vx, vy, vz, heading, timestamp
-_TELEM_FMT = "!8d"
+# Telemetry: lat, lon, alt, vx, vy, vz, heading, timestamp, guidance_mode
+_TELEM_FMT = "!9d"
 _TELEM_SIZE = struct.calcsize(_TELEM_FMT)
 
-# Command wire format: 1 byte command code
-# 1=RTL, 2=LAND, 3=KILL
-_CMD_FMT = "!B"
-
+# Command codes (must match mavlink_bridge.py)
 CMD_RTL = 1
 CMD_LAND = 2
 CMD_KILL = 3
+CMD_FOLLOW = 4
+CMD_HOVER = 5
+CMD_WASD = 10
+CMD_WAYPOINT = 11
+CMD_SPEED = 12
+
+# Command wire formats
+_CMD_SIMPLE_FMT = "!B"
+_CMD_WASD_FMT = "!Bff"
+_CMD_WAYPOINT_FMT = "!Bdd"
+_CMD_SPEED_FMT = "!Bf"
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -114,6 +127,8 @@ class TelemReceiver:
                 data, _ = sock.recvfrom(4096)
                 if len(data) == _TELEM_SIZE:
                     vals = struct.unpack(_TELEM_FMT, data)
+                    _GUIDANCE_MODE_NAMES = {0: 'NONE', 1: 'TRACKING', 2: 'CATCHUP',
+                                            3: 'EVASION', 4: 'FAILSAFE'}
                     state = {
                         'lat': vals[0],
                         'lon': vals[1],
@@ -123,6 +138,7 @@ class TelemReceiver:
                         'vz': vals[5],
                         'heading': vals[6],
                         'timestamp': vals[7],
+                        'guidance_mode': _GUIDANCE_MODE_NAMES.get(int(vals[8]), 'NONE'),
                     }
                     if state['lat'] != 0.0 or state['lon'] != 0.0:
                         with self._lock:
@@ -138,28 +154,52 @@ class TelemReceiver:
 
 
 # ═══════════════════════════════════════════════════════════════
-# Command Sender
+# Command Sender (extended for variable-length commands)
 # ═══════════════════════════════════════════════════════════════
 
 class CommandSender:
-    """Sends commands to a drone via UDP."""
+    """Sends commands to drones via UDP (variable-length protocol)."""
 
     def __init__(self):
         self._sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.leader_cmd_count: int = 0
         self.follower_cmd_count: int = 0
 
-    def send(self, host: str, port: int, cmd_code: int):
+    def _send_raw(self, host: str, port: int, data: bytes):
         try:
-            data = struct.pack(_CMD_FMT, cmd_code)
             self._sock.sendto(data, (host, port))
             if port == LEADER_CMD_PORT:
                 self.leader_cmd_count += 1
             elif port == FOLLOWER_CMD_PORT:
                 self.follower_cmd_count += 1
-            log.info("Sent command %d to %s:%d", cmd_code, host, port)
         except (OSError, socket.gaierror) as e:
-            log.error("Failed to send command to %s:%d: %s", host, port, e)
+            log.error("Failed to send to %s:%d: %s", host, port, e)
+
+    def send_simple(self, host: str, port: int, cmd_code: int):
+        """Send a 1-byte command (RTL, LAND, KILL, FOLLOW, HOVER)."""
+        data = struct.pack(_CMD_SIMPLE_FMT, cmd_code)
+        self._send_raw(host, port, data)
+        log.info("Sent %s to %s:%d", {
+            CMD_RTL: "RTL", CMD_LAND: "LAND", CMD_KILL: "KILL",
+            CMD_FOLLOW: "FOLLOW", CMD_HOVER: "HOVER",
+        }.get(cmd_code, f"cmd={cmd_code}"), host, port)
+
+    def send_wasd(self, host: str, port: int, vn: float, ve: float):
+        """Send WASD velocity command to leader."""
+        data = struct.pack(_CMD_WASD_FMT, CMD_WASD, vn, ve)
+        self._send_raw(host, port, data)
+
+    def send_waypoint(self, host: str, port: int, lat: float, lon: float):
+        """Send waypoint command to leader."""
+        data = struct.pack(_CMD_WAYPOINT_FMT, CMD_WAYPOINT, lat, lon)
+        self._send_raw(host, port, data)
+        log.info("Sent WAYPOINT (%.7f, %.7f) to %s:%d", lat, lon, host, port)
+
+    def send_speed(self, host: str, port: int, speed: float):
+        """Send operating speed command to leader."""
+        data = struct.pack(_CMD_SPEED_FMT, CMD_SPEED, speed)
+        self._send_raw(host, port, data)
+        log.info("Sent SPEED %.1f to %s:%d", speed, host, port)
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -179,6 +219,15 @@ class DockerGCS:
         # Command sender
         self.cmd_sender = CommandSender()
 
+        # Tracked drone modes (updated when GCS sends commands)
+        self.leader_mode = "HOVER"    # HOVER / WASD / GOTO
+        self.follower_mode = "HOVER"  # HOVER / FOLLOW
+
+        # Leader waypoint target (for display)
+        self.leader_wp_lat = 0.0
+        self.leader_wp_lon = 0.0
+        self.leader_speed = 1.5
+
         # Flask + SocketIO
         template_dir = os.path.join(os.path.dirname(__file__), "templates")
         self.app = Flask(__name__, template_folder=template_dir)
@@ -192,7 +241,10 @@ class DockerGCS:
         @self.app.route("/")
         def index():
             return render_template("index.html",
-                                   home_lat=HOME_LAT, home_lon=HOME_LON)
+                                   home_lat=HOME_LAT, home_lon=HOME_LON,
+                                   geofence_radius_m=GEOFENCE_RADIUS_M,
+                                   safety_dist_m=SAFETY_DIST_M,
+                                   catchup_dist_m=CATCHUP_DIST_M)
 
     def _register_events(self):
         sio = self.sio
@@ -200,33 +252,120 @@ class DockerGCS:
         @sio.on("connect")
         def on_connect():
             log.info("Browser connected")
+            # Send current state to newly connected client
+            sio.emit("mode_update", {
+                "leader_mode": self.leader_mode,
+                "follower_mode": self.follower_mode,
+                "leader_speed": self.leader_speed,
+                "leader_wp_lat": self.leader_wp_lat,
+                "leader_wp_lon": self.leader_wp_lon,
+            })
+
+        # ── Safety commands (both/leader/follower) ──
 
         @sio.on("cmd_rtl")
         def on_rtl(data=None):
             target = (data or {}).get("target", "both")
             if target in ("leader", "both"):
-                self.cmd_sender.send(LEADER_HOST, LEADER_CMD_PORT, CMD_RTL)
+                self.cmd_sender.send_simple(LEADER_HOST, LEADER_CMD_PORT, CMD_RTL)
+                self.leader_mode = "RTL"
             if target in ("follower", "both"):
-                self.cmd_sender.send(FOLLOWER_HOST, FOLLOWER_CMD_PORT, CMD_RTL)
+                self.cmd_sender.send_simple(FOLLOWER_HOST, FOLLOWER_CMD_PORT, CMD_RTL)
+                self.follower_mode = "RTL"
             sio.emit("log", {"msg": f"RTL sent to {target}"})
+            self._emit_mode_update()
 
         @sio.on("cmd_land")
         def on_land(data=None):
             target = (data or {}).get("target", "both")
             if target in ("leader", "both"):
-                self.cmd_sender.send(LEADER_HOST, LEADER_CMD_PORT, CMD_LAND)
+                self.cmd_sender.send_simple(LEADER_HOST, LEADER_CMD_PORT, CMD_LAND)
+                self.leader_mode = "LAND"
             if target in ("follower", "both"):
-                self.cmd_sender.send(FOLLOWER_HOST, FOLLOWER_CMD_PORT, CMD_LAND)
+                self.cmd_sender.send_simple(FOLLOWER_HOST, FOLLOWER_CMD_PORT, CMD_LAND)
+                self.follower_mode = "LAND"
             sio.emit("log", {"msg": f"LAND sent to {target}"})
+            self._emit_mode_update()
 
         @sio.on("cmd_kill")
         def on_kill(data=None):
             target = (data or {}).get("target", "both")
             if target in ("leader", "both"):
-                self.cmd_sender.send(LEADER_HOST, LEADER_CMD_PORT, CMD_KILL)
+                self.cmd_sender.send_simple(LEADER_HOST, LEADER_CMD_PORT, CMD_KILL)
+                self.leader_mode = "KILLED"
             if target in ("follower", "both"):
-                self.cmd_sender.send(FOLLOWER_HOST, FOLLOWER_CMD_PORT, CMD_KILL)
+                self.cmd_sender.send_simple(FOLLOWER_HOST, FOLLOWER_CMD_PORT, CMD_KILL)
+                self.follower_mode = "KILLED"
             sio.emit("log", {"msg": f"KILL sent to {target}"})
+            self._emit_mode_update()
+
+        # ── Leader control ──
+
+        @sio.on("leader_hover")
+        def on_leader_hover(data=None):
+            self.cmd_sender.send_simple(LEADER_HOST, LEADER_CMD_PORT, CMD_HOVER)
+            self.leader_mode = "HOVER"
+            self.leader_wp_lat = 0.0
+            self.leader_wp_lon = 0.0
+            sio.emit("log", {"msg": "Leader: HOVER"})
+            self._emit_mode_update()
+
+        @sio.on("leader_wasd")
+        def on_leader_wasd(data=None):
+            vn = float((data or {}).get("vn", 0))
+            ve = float((data or {}).get("ve", 0))
+            self.cmd_sender.send_wasd(LEADER_HOST, LEADER_CMD_PORT, vn, ve)
+            self.leader_mode = "WASD"
+            self.leader_wp_lat = 0.0
+            self.leader_wp_lon = 0.0
+            self._emit_mode_update()
+
+        @sio.on("leader_waypoint")
+        def on_leader_waypoint(data=None):
+            lat = float((data or {}).get("lat", 0))
+            lon = float((data or {}).get("lon", 0))
+            if lat != 0 and lon != 0:
+                self.cmd_sender.send_waypoint(LEADER_HOST, LEADER_CMD_PORT, lat, lon)
+                self.leader_mode = "GOTO"
+                self.leader_wp_lat = lat
+                self.leader_wp_lon = lon
+                sio.emit("log", {"msg": f"Leader: GOTO ({lat:.6f}, {lon:.6f})"})
+                self._emit_mode_update()
+
+        @sio.on("leader_speed")
+        def on_leader_speed(data=None):
+            speed = float((data or {}).get("speed", 1.5))
+            speed = max(0.5, min(speed, 10.0))
+            self.cmd_sender.send_speed(LEADER_HOST, LEADER_CMD_PORT, speed)
+            self.leader_speed = speed
+            sio.emit("log", {"msg": f"Leader speed: {speed:.1f} m/s"})
+            self._emit_mode_update()
+
+        # ── Follower RC mock ──
+
+        @sio.on("follower_follow")
+        def on_follower_follow(data=None):
+            self.cmd_sender.send_simple(FOLLOWER_HOST, FOLLOWER_CMD_PORT, CMD_FOLLOW)
+            self.follower_mode = "FOLLOW"
+            sio.emit("log", {"msg": "Follower: FOLLOW"})
+            self._emit_mode_update()
+
+        @sio.on("follower_hover")
+        def on_follower_hover(data=None):
+            self.cmd_sender.send_simple(FOLLOWER_HOST, FOLLOWER_CMD_PORT, CMD_HOVER)
+            self.follower_mode = "HOVER"
+            sio.emit("log", {"msg": "Follower: HOVER"})
+            self._emit_mode_update()
+
+    def _emit_mode_update(self):
+        """Push mode state to all connected browsers."""
+        self.sio.emit("mode_update", {
+            "leader_mode": self.leader_mode,
+            "follower_mode": self.follower_mode,
+            "leader_speed": self.leader_speed,
+            "leader_wp_lat": self.leader_wp_lat,
+            "leader_wp_lon": self.leader_wp_lon,
+        })
 
     def _broadcast_loop(self):
         """Emit telemetry to all connected browsers at 4 Hz."""
@@ -258,6 +397,31 @@ class DockerGCS:
         if fp.get("vx") is not None:
             f_speed = math.sqrt(fp["vx"] ** 2 + fp["vy"] ** 2)
 
+        # Home distances
+        l_home_dist = 0.0
+        if lp.get("lat"):
+            dn = (lp["lat"] - HOME_LAT) * METERS_PER_DEG_LAT
+            de = (lp["lon"] - HOME_LON) * METERS_PER_DEG_LAT * math.cos(math.radians(HOME_LAT))
+            l_home_dist = math.sqrt(dn * dn + de * de)
+
+        f_home_dist = 0.0
+        if fp.get("lat"):
+            dn = (fp["lat"] - HOME_LAT) * METERS_PER_DEG_LAT
+            de = (fp["lon"] - HOME_LON) * METERS_PER_DEG_LAT * math.cos(math.radians(HOME_LAT))
+            f_home_dist = math.sqrt(dn * dn + de * de)
+
+        # Auto-detect leader GOTO arrival
+        if self.leader_mode == "GOTO" and self.leader_wp_lat != 0 and lp.get("lat"):
+            wp_dist = math.sqrt(
+                ((lp["lat"] - self.leader_wp_lat) * METERS_PER_DEG_LAT) ** 2 +
+                ((lp["lon"] - self.leader_wp_lon) * METERS_PER_DEG_LAT
+                 * math.cos(math.radians(lp["lat"]))) ** 2)
+            if wp_dist < 2.0:
+                self.leader_mode = "HOVER"
+                self.leader_wp_lat = 0.0
+                self.leader_wp_lon = 0.0
+                self._emit_mode_update()
+
         # Network stats
         l_stats = self.leader_telem.get_stats()
         f_stats = self.follower_telem.get_stats()
@@ -269,7 +433,9 @@ class DockerGCS:
                 "alt": lp.get("alt", 0),
                 "vn": lp.get("vx", 0),
                 "ve": lp.get("vy", 0),
+                "heading": lp.get("heading", 0),
                 "speed": round(l_speed, 2),
+                "home_dist": round(l_home_dist, 1),
             },
             "follower": {
                 "lat": fp.get("lat", 0),
@@ -277,11 +443,19 @@ class DockerGCS:
                 "alt": fp.get("alt", 0),
                 "vn": fp.get("vx", 0),
                 "ve": fp.get("vy", 0),
+                "heading": fp.get("heading", 0),
                 "speed": round(f_speed, 2),
+                "home_dist": round(f_home_dist, 1),
             },
             "peer_dist": round(peer_dist, 2),
+            "follower_guidance_mode": fp.get("guidance_mode", "NONE"),
             "leader_connected": lp.get("lat", 0) != 0,
             "follower_connected": fp.get("lat", 0) != 0,
+            "leader_mode": self.leader_mode,
+            "follower_mode": self.follower_mode,
+            "leader_speed": self.leader_speed,
+            "leader_wp_lat": self.leader_wp_lat,
+            "leader_wp_lon": self.leader_wp_lon,
             "network": {
                 "leader_rx_count": l_stats['count'],
                 "leader_rx_rate": l_stats['rate'],
@@ -304,7 +478,7 @@ class DockerGCS:
         threading.Thread(target=self._broadcast_loop, daemon=True).start()
 
         log.info("=" * 50)
-        log.info("Docker GCS — http://0.0.0.0:%d", WEB_PORT)
+        log.info("Docker GCS -- http://0.0.0.0:%d", WEB_PORT)
         log.info("=" * 50)
 
         try:

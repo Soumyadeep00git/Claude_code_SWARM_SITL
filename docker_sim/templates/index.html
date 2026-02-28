@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Leader-Follower GCS (Docker)</title>
+    <title>Leader-Follower GCS</title>
 
     <!-- Fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -91,16 +91,42 @@
             letter-spacing: 1.5px; color: var(--text-dim); margin-bottom: 8px;
         }
 
+        /* ── Guidance Mode Badge ─────────────────────────── */
+        .mode-display {
+            display: flex; align-items: center; justify-content: center; gap: 10px;
+            margin-bottom: 4px;
+        }
+        .mode-badge {
+            font-family: var(--mono); font-size: 18px; font-weight: 700;
+            padding: 6px 18px; border-radius: 8px; text-align: center;
+            border: 2px solid; transition: all 0.3s;
+        }
+        .mode-badge.TRACKING { color: var(--success); border-color: var(--success); background: rgba(52,211,153,0.1); }
+        .mode-badge.CATCHUP { color: var(--warning); border-color: var(--warning); background: rgba(251,191,36,0.1); }
+        .mode-badge.EVASION { color: var(--danger); border-color: var(--danger); background: rgba(248,113,113,0.15); animation: pulse-evasion 0.6s infinite alternate; }
+        .mode-badge.FAILSAFE { color: #ff4444; border-color: #ff4444; background: rgba(255,68,68,0.2); animation: pulse-evasion 0.3s infinite alternate; }
+        .mode-badge.UNKNOWN { color: var(--text-dim); border-color: var(--glass-border); background: rgba(255,255,255,0.03); }
+        @keyframes pulse-evasion { from { opacity: 1; } to { opacity: 0.5; } }
+        .mode-sub { font-size: 10px; color: var(--text-dim); text-align: center; margin-top: 4px; }
+
         /* ── Telemetry Grid ───────────────────────────────── */
         .telem-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+        .telem-grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px; }
         .telem-item { text-align: center; }
         .telem-label { font-size: 9px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.5px; }
         .telem-val { font-family: var(--mono); font-size: 16px; font-weight: 600; }
+        .telem-val.sm { font-size: 13px; }
         .telem-val.danger { color: var(--danger); }
         .telem-val.warning { color: var(--warning); }
         .telem-val.safe { color: var(--success); }
         .telem-val.flash { animation: flash 0.5s infinite alternate; }
         @keyframes flash { from { opacity: 1; } to { opacity: 0.3; } }
+
+        /* ── Drone sub-panel with color accent ───────────── */
+        .drone-section { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--glass-border); }
+        .drone-header { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 6px; }
+        .drone-header.leader { color: var(--leader-color); }
+        .drone-header.follower { color: var(--follower-color); }
 
         /* ── Buttons ──────────────────────────────────────── */
         .btn-row { display: flex; gap: 6px; flex-wrap: wrap; }
@@ -163,21 +189,30 @@
             font-size: 10px; color: var(--text-dim); line-height: 1.6;
             scrollbar-width: thin;
         }
+
+        /* ── Geofence label ──────────────────────────────── */
+        .geofence-label {
+            background: none !important; border: none !important; box-shadow: none !important;
+            color: rgba(251,191,36,0.6) !important; font-size: 10px !important;
+            font-weight: 600 !important; font-family: 'JetBrains Mono', monospace !important;
+            white-space: nowrap !important;
+        }
     </style>
 </head>
 <body>
-    <!-- ═══ MAP ═══ -->
+    <!-- MAP -->
     <div id="map"></div>
 
-    <!-- ═══ TOP BAR ═══ -->
+    <!-- TOP BAR -->
     <header id="topbar">
         <div class="brand">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke-width="2.5">
                 <circle cx="12" cy="12" r="3"/><path d="M12 1v4M12 19v4M1 12h4M19 12h4M4.2 4.2l2.8 2.8M17 17l2.8 2.8M4.2 19.8l2.8-2.8M17 7l2.8-2.8"/>
             </svg>
-            GCS (DOCKER)
+            GCS
         </div>
         <div class="topbar-center">
+            <div class="stat-chip"><span class="stat-label">MODE</span><span id="mode-top" class="stat-value" style="color:var(--success)">---</span></div>
             <div class="stat-chip"><span class="stat-label">DIST</span><span id="peer-dist-top" class="stat-value">---</span></div>
             <div class="stat-chip"><span class="stat-label">L ALT</span><span id="leader-alt-top" class="stat-value">---</span></div>
             <div class="stat-chip"><span class="stat-label">F ALT</span><span id="follower-alt-top" class="stat-value">---</span></div>
@@ -188,11 +223,20 @@
         </div>
     </header>
 
-    <!-- ═══ RIGHT PANEL ═══ -->
+    <!-- RIGHT PANEL -->
     <div id="right-panel">
+        <!-- Guidance Mode -->
+        <div class="panel">
+            <div class="panel-title">Guidance Mode</div>
+            <div class="mode-display">
+                <div id="mode-badge" class="mode-badge UNKNOWN">---</div>
+            </div>
+            <div id="mode-sub" class="mode-sub">Waiting for data...</div>
+        </div>
+
         <!-- RC Override Commands -->
         <div class="panel">
-            <div class="panel-title">RC Override Commands</div>
+            <div class="panel-title">Commands</div>
             <div class="target-tabs">
                 <div class="target-tab active" id="tab-both" onclick="setTarget('both')">Both</div>
                 <div class="target-tab" id="tab-leader" onclick="setTarget('leader')">Leader</div>
@@ -205,19 +249,6 @@
             </div>
         </div>
 
-        <!-- Keyboard Shortcuts -->
-        <div class="panel">
-            <div class="panel-title">Keyboard Shortcuts</div>
-            <div class="shortcut-grid">
-                <span class="shortcut-key" id="key-r">R</span><span class="shortcut-desc">RTL (return to launch)</span>
-                <span class="shortcut-key" id="key-l">L</span><span class="shortcut-desc">LAND (switch to land mode)</span>
-                <span class="shortcut-key" id="key-k">K</span><span class="shortcut-desc">KILL (force disarm)</span>
-                <span class="shortcut-key" id="key-1">1</span><span class="shortcut-desc">Target: Leader only</span>
-                <span class="shortcut-key" id="key-2">2</span><span class="shortcut-desc">Target: Follower only</span>
-                <span class="shortcut-key" id="key-3">3</span><span class="shortcut-desc">Target: Both</span>
-            </div>
-        </div>
-
         <!-- Telemetry -->
         <div class="panel">
             <div class="panel-title">Telemetry</div>
@@ -227,25 +258,50 @@
                     <div id="telem-dist" class="telem-val safe">---</div>
                 </div>
                 <div class="telem-item">
-                    <div class="telem-label">Leader Alt (m)</div>
-                    <div id="telem-l-alt" class="telem-val">---</div>
+                    <div class="telem-label">Geofence</div>
+                    <div id="telem-geofence" class="telem-val safe" style="font-size:13px">OK</div>
                 </div>
-                <div class="telem-item">
-                    <div class="telem-label">Leader Spd</div>
-                    <div id="telem-l-speed" class="telem-val">---</div>
+            </div>
+
+            <!-- Leader -->
+            <div class="drone-section">
+                <div class="drone-header leader">Leader</div>
+                <div class="telem-grid-3">
+                    <div class="telem-item"><div class="telem-label">Alt</div><div id="telem-l-alt" class="telem-val sm">---</div></div>
+                    <div class="telem-item"><div class="telem-label">Speed</div><div id="telem-l-speed" class="telem-val sm">---</div></div>
+                    <div class="telem-item"><div class="telem-label">Hdg</div><div id="telem-l-hdg" class="telem-val sm">---</div></div>
                 </div>
-                <div class="telem-item">
-                    <div class="telem-label">Follower Spd</div>
-                    <div id="telem-f-speed" class="telem-val">---</div>
+                <div class="telem-grid" style="margin-top:4px">
+                    <div class="telem-item"><div class="telem-label">Home Dist</div><div id="telem-l-home" class="telem-val sm">---</div></div>
+                    <div class="telem-item"><div class="telem-label">GPS</div><div id="telem-l-gps" class="telem-val sm" style="font-size:10px">---</div></div>
                 </div>
-                <div class="telem-item">
-                    <div class="telem-label">Leader Hdg</div>
-                    <div id="telem-l-hdg" class="telem-val">---</div>
+            </div>
+
+            <!-- Follower -->
+            <div class="drone-section">
+                <div class="drone-header follower">Follower</div>
+                <div class="telem-grid-3">
+                    <div class="telem-item"><div class="telem-label">Alt</div><div id="telem-f-alt" class="telem-val sm">---</div></div>
+                    <div class="telem-item"><div class="telem-label">Speed</div><div id="telem-f-speed" class="telem-val sm">---</div></div>
+                    <div class="telem-item"><div class="telem-label">Hdg</div><div id="telem-f-hdg" class="telem-val sm">---</div></div>
                 </div>
-                <div class="telem-item">
-                    <div class="telem-label">Follower Alt (m)</div>
-                    <div id="telem-f-alt" class="telem-val">---</div>
+                <div class="telem-grid" style="margin-top:4px">
+                    <div class="telem-item"><div class="telem-label">Home Dist</div><div id="telem-f-home" class="telem-val sm">---</div></div>
+                    <div class="telem-item"><div class="telem-label">GPS</div><div id="telem-f-gps" class="telem-val sm" style="font-size:10px">---</div></div>
                 </div>
+            </div>
+        </div>
+
+        <!-- Keyboard Shortcuts -->
+        <div class="panel">
+            <div class="panel-title">Shortcuts</div>
+            <div class="shortcut-grid">
+                <span class="shortcut-key" id="key-r">R</span><span class="shortcut-desc">RTL</span>
+                <span class="shortcut-key" id="key-l">L</span><span class="shortcut-desc">LAND</span>
+                <span class="shortcut-key" id="key-k">K</span><span class="shortcut-desc">KILL</span>
+                <span class="shortcut-key" id="key-1">1</span><span class="shortcut-desc">Leader</span>
+                <span class="shortcut-key" id="key-2">2</span><span class="shortcut-desc">Follower</span>
+                <span class="shortcut-key" id="key-3">3</span><span class="shortcut-desc">Both</span>
             </div>
         </div>
 
@@ -253,42 +309,32 @@
         <div class="panel">
             <div class="panel-title">Network</div>
             <div class="net-grid">
-                <!-- Leader → GCS -->
                 <div class="net-link">
                     <span class="net-dot dead" id="net-leader-dot"></span>
                     <span style="color:var(--leader-color)">Leader</span>
-                    <span class="net-arrow">→</span>
-                    <span>GCS</span>
+                    <span class="net-arrow">&rarr;</span><span>GCS</span>
                 </div>
                 <span class="net-rate" id="net-leader-rate">0.0/s</span>
                 <span class="net-count" id="net-leader-count">0 pkts</span>
 
-                <!-- Follower → GCS -->
                 <div class="net-link">
                     <span class="net-dot dead" id="net-follower-dot"></span>
                     <span style="color:var(--follower-color)">Follower</span>
-                    <span class="net-arrow">→</span>
-                    <span>GCS</span>
+                    <span class="net-arrow">&rarr;</span><span>GCS</span>
                 </div>
                 <span class="net-rate" id="net-follower-rate">0.0/s</span>
                 <span class="net-count" id="net-follower-count">0 pkts</span>
 
                 <div class="net-separator"></div>
 
-                <!-- GCS → Leader (cmds) -->
-                <div class="net-link">
-                    <span>GCS</span>
-                    <span class="net-arrow">→</span>
+                <div class="net-link"><span>GCS</span><span class="net-arrow">&rarr;</span>
                     <span style="color:var(--leader-color)">Leader</span>
                     <span style="font-size:9px;color:var(--text-dim)">(cmd)</span>
                 </div>
                 <span class="net-rate"></span>
                 <span class="net-count" id="net-leader-cmd">0 cmds</span>
 
-                <!-- GCS → Follower (cmds) -->
-                <div class="net-link">
-                    <span>GCS</span>
-                    <span class="net-arrow">→</span>
+                <div class="net-link"><span>GCS</span><span class="net-arrow">&rarr;</span>
                     <span style="color:var(--follower-color)">Follower</span>
                     <span style="font-size:9px;color:var(--text-dim)">(cmd)</span>
                 </div>
@@ -304,30 +350,63 @@
         </div>
     </div>
 
-    <!-- ═══ BOTTOM HINT ═══ -->
-    <div style="
-        position:fixed; bottom:12px; left:50%; transform:translateX(-50%); z-index:1000;
-        background:var(--glass); backdrop-filter:blur(12px); border:1px solid var(--glass-border);
-        border-radius:8px; padding:6px 16px; font-size:11px; color:var(--text-dim);
-    ">
-        R=RTL | L=LAND | K=KILL | 1=Leader | 2=Follower | 3=Both
-    </div>
-
     <script>
     // ═══════════════════════════════════════════════════════════
-    // Socket.IO + State
+    // Config from server
     // ═══════════════════════════════════════════════════════════
-    const socket = io();
     const HOME_LAT = {{ home_lat }};
     const HOME_LON = {{ home_lon }};
+    const GEOFENCE_RADIUS_M = {{ geofence_radius_m }};
+    const SAFETY_DIST_M = {{ safety_dist_m }};
+    const CATCHUP_DIST_M = {{ catchup_dist_m }};
+
+    const socket = io();
     let currentTarget = 'both';
 
-    // Map
+    // ═══════════════════════════════════════════════════════════
+    // Map Setup
+    // ═══════════════════════════════════════════════════════════
     const map = L.map('map', {zoomControl: false}).setView([HOME_LAT, HOME_LON], 18);
     L.control.zoom({position: 'bottomleft'}).addTo(map);
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 22 }).addTo(map);
 
-    // Markers
+    // ── Geofence circle (dotted) ────────────────────────────
+    const geofenceCircle = L.circle([HOME_LAT, HOME_LON], {
+        radius: GEOFENCE_RADIUS_M,
+        color: '#fbbf24',
+        weight: 2,
+        opacity: 0.5,
+        fillColor: '#fbbf24',
+        fillOpacity: 0.02,
+        dashArray: '8 6',
+    }).addTo(map);
+
+    // Geofence label
+    const geofenceLabel = L.marker([HOME_LAT, HOME_LON], {
+        icon: L.divIcon({
+            className: 'geofence-label',
+            html: 'GEOFENCE ' + GEOFENCE_RADIUS_M + 'm',
+            iconSize: [120, 16],
+            iconAnchor: [60, -GEOFENCE_RADIUS_M * 0.0004],
+        }),
+        interactive: false,
+    });
+    // Position the label at the top of the circle
+    const labelLat = HOME_LAT + GEOFENCE_RADIUS_M / 111320.0;
+    geofenceLabel.setLatLng([labelLat, HOME_LON]);
+    geofenceLabel.addTo(map);
+
+    // ── Home marker ─────────────────────────────────────────
+    const homeIcon = L.divIcon({
+        className: '',
+        html: '<div style="width:10px;height:10px;border:2px solid #fbbf24;border-radius:50%;background:rgba(251,191,36,0.3);"></div>',
+        iconSize: [10, 10], iconAnchor: [5, 5],
+    });
+    L.marker([HOME_LAT, HOME_LON], {icon: homeIcon, interactive: false}).addTo(map)
+        .bindTooltip('HOME', {permanent: true, direction: 'bottom', offset: [0, 8],
+            className: 'geofence-label'});
+
+    // ── Drone markers ───────────────────────────────────────
     const leaderIcon = L.divIcon({
         className: '',
         html: '<div style="width:16px;height:16px;border-radius:50%;background:#60a5fa;border:2px solid #fff;box-shadow:0 0 8px rgba(96,165,250,0.5);"></div>',
@@ -342,25 +421,36 @@
     const leaderMarker = L.marker([HOME_LAT, HOME_LON], {icon: leaderIcon}).addTo(map);
     const followerMarker = L.marker([HOME_LAT, HOME_LON], {icon: followerIcon}).addTo(map);
 
-    leaderMarker.bindTooltip('Leader', {permanent: true, direction: 'top', offset: [0, -12], className: 'drone-label'});
-    followerMarker.bindTooltip('Follower', {permanent: true, direction: 'top', offset: [0, -10], className: 'drone-label'});
-
     const labelStyle = document.createElement('style');
     labelStyle.textContent = `.drone-label { background: rgba(0,0,0,0.6) !important; color: #e2e8f0 !important;
         border: 1px solid rgba(255,255,255,0.1) !important; font-size: 10px !important; font-weight: 600 !important;
         padding: 1px 6px !important; border-radius: 4px !important; }`;
     document.head.appendChild(labelStyle);
 
-    // Trails
+    leaderMarker.bindTooltip('Leader', {permanent: true, direction: 'top', offset: [0, -12], className: 'drone-label'});
+    followerMarker.bindTooltip('Follower', {permanent: true, direction: 'top', offset: [0, -10], className: 'drone-label'});
+
+    // ── Trails ──────────────────────────────────────────────
     const leaderTrail = L.polyline([], {color: '#60a5fa', weight: 2, opacity: 0.5}).addTo(map);
     const followerTrail = L.polyline([], {color: '#34d399', weight: 2, opacity: 0.5}).addTo(map);
     const MAX_TRAIL = 300;
 
-    // Safety circle
-    const safeCircle = L.circle([HOME_LAT, HOME_LON], {
-        radius: 1, color: '#fbbf24', weight: 1, opacity: 0.4,
-        fillColor: '#fbbf24', fillOpacity: 0.03, dashArray: '6 4',
-    }).addTo(map);
+    // ── Peer distance line ──────────────────────────────────
+    const peerLine = L.polyline([], {color: '#94a3b8', weight: 1, opacity: 0.4, dashArray: '4 4'}).addTo(map);
+
+    // ═══════════════════════════════════════════════════════════
+    // Mode estimation (GCS-side)
+    // ═══════════════════════════════════════════════════════════
+    function estimateMode(peerDist, leaderConnected, followerConnected, leaderHomeDist, followerHomeDist) {
+        if (!leaderConnected || !followerConnected) return {mode: 'UNKNOWN', reason: 'Waiting for telemetry'};
+        if (leaderHomeDist > GEOFENCE_RADIUS_M) return {mode: 'FAILSAFE', reason: 'LEADER_IN_OBLIVION (' + leaderHomeDist.toFixed(0) + 'm from home)'};
+        if (followerHomeDist > GEOFENCE_RADIUS_M) return {mode: 'FAILSAFE', reason: 'GEOFENCE (' + followerHomeDist.toFixed(0) + 'm from home)'};
+        if (peerDist < SAFETY_DIST_M) return {mode: 'EVASION', reason: 'Peer dist ' + peerDist.toFixed(2) + 'm < ' + SAFETY_DIST_M + 'm'};
+        // We can't accurately detect CATCHUP without goal error, but rough estimate:
+        // If follower is far from leader and speed is high, likely CATCHUP
+        if (peerDist > CATCHUP_DIST_M + 5) return {mode: 'CATCHUP', reason: 'Peer dist ' + peerDist.toFixed(1) + 'm (chasing)'};
+        return {mode: 'TRACKING', reason: 'Offset dist ' + peerDist.toFixed(1) + 'm'};
+    }
 
     // ═══════════════════════════════════════════════════════════
     // Telemetry Handler
@@ -368,7 +458,7 @@
     let autoCenter = true;
 
     socket.on('state_update', function(d) {
-        // Leader
+        // ── Leader position ──
         if (d.leader.lat !== 0) {
             const ll = [d.leader.lat, d.leader.lon];
             leaderMarker.setLatLng(ll);
@@ -378,7 +468,7 @@
             leaderTrail.setLatLngs(pts);
         }
 
-        // Follower
+        // ── Follower position ──
         if (d.follower.lat !== 0) {
             const fl = [d.follower.lat, d.follower.lon];
             followerMarker.setLatLng(fl);
@@ -386,10 +476,14 @@
             pts.push(fl);
             if (pts.length > MAX_TRAIL) pts.shift();
             followerTrail.setLatLngs(pts);
-            safeCircle.setLatLng(fl);
         }
 
-        // Auto-center
+        // ── Peer distance line ──
+        if (d.leader.lat !== 0 && d.follower.lat !== 0) {
+            peerLine.setLatLngs([[d.leader.lat, d.leader.lon], [d.follower.lat, d.follower.lon]]);
+        }
+
+        // ── Auto-center ──
         if (autoCenter && d.leader.lat !== 0 && d.follower.lat !== 0) {
             const bounds = L.latLngBounds(
                 [d.leader.lat, d.leader.lon],
@@ -398,58 +492,105 @@
             map.fitBounds(bounds, {maxZoom: 19, animate: true, duration: 0.5});
         }
 
-        // Connection badges
+        // ── Connection badges ──
         const lBadge = document.getElementById('conn-leader');
         lBadge.className = 'conn-badge ' + (d.leader_connected ? 'on' : 'off');
         const fBadge = document.getElementById('conn-follower');
         fBadge.className = 'conn-badge ' + (d.follower_connected ? 'on' : 'off');
 
-        // Telemetry values
+        // ── Guidance mode ──
         const dist = d.peer_dist;
+        const actualMode = d.follower_guidance_mode || 'NONE';
+        let modeInfo;
+        if (d.follower_mode === 'FOLLOW' && actualMode !== 'NONE') {
+            modeInfo = {mode: actualMode, reason: 'Reported by follower'};
+        } else {
+            modeInfo = estimateMode(dist, d.leader_connected, d.follower_connected,
+                                     d.leader.home_dist || 0, d.follower.home_dist || 0);
+        }
+        const modeBadge = document.getElementById('mode-badge');
+        modeBadge.textContent = modeInfo.mode;
+        modeBadge.className = 'mode-badge ' + modeInfo.mode;
+        document.getElementById('mode-sub').textContent = modeInfo.reason;
+
+        // Top bar mode
+        const modeTop = document.getElementById('mode-top');
+        modeTop.textContent = modeInfo.mode;
+        const modeColors = {TRACKING: 'var(--success)', CATCHUP: 'var(--warning)',
+                           EVASION: 'var(--danger)', FAILSAFE: '#ff4444', UNKNOWN: 'var(--text-dim)'};
+        modeTop.style.color = modeColors[modeInfo.mode] || 'var(--text-dim)';
+
+        // ── Peer distance ──
         const distEl = document.getElementById('telem-dist');
         distEl.textContent = dist.toFixed(1);
         distEl.className = 'telem-val ' + (dist < 1 ? 'danger flash' : dist < 2 ? 'danger' : dist < 5 ? 'warning' : 'safe');
 
-        document.getElementById('telem-l-speed').textContent = d.leader.speed.toFixed(1);
-        document.getElementById('telem-f-speed').textContent = d.follower.speed.toFixed(1);
-        document.getElementById('telem-l-alt').textContent = d.leader.alt.toFixed(1);
-        document.getElementById('telem-f-alt').textContent = d.follower.alt.toFixed(1);
-        document.getElementById('telem-l-hdg').textContent = '---';
+        // ── Geofence status ──
+        const gfEl = document.getElementById('telem-geofence');
+        const lHome = d.leader.home_dist || 0;
+        const fHome = d.follower.home_dist || 0;
+        const maxHome = Math.max(lHome, fHome);
+        const gfPct = (maxHome / GEOFENCE_RADIUS_M * 100).toFixed(0);
+        if (maxHome > GEOFENCE_RADIUS_M) {
+            gfEl.textContent = 'BREACH';
+            gfEl.className = 'telem-val danger flash';
+        } else if (maxHome > GEOFENCE_RADIUS_M * 0.8) {
+            gfEl.textContent = gfPct + '%';
+            gfEl.className = 'telem-val warning';
+        } else {
+            gfEl.textContent = gfPct + '%';
+            gfEl.className = 'telem-val safe';
+        }
 
-        // Top bar
+        // ── Leader telemetry ──
+        document.getElementById('telem-l-alt').textContent = d.leader.alt.toFixed(1);
+        document.getElementById('telem-l-speed').textContent = d.leader.speed.toFixed(1);
+        document.getElementById('telem-l-hdg').textContent = (d.leader.heading || 0).toFixed(0) + '\u00B0';
+        document.getElementById('telem-l-home').textContent = lHome.toFixed(0) + 'm';
+        document.getElementById('telem-l-gps').textContent = d.leader.lat !== 0
+            ? d.leader.lat.toFixed(6) + ', ' + d.leader.lon.toFixed(6) : '---';
+
+        // ── Follower telemetry ──
+        document.getElementById('telem-f-alt').textContent = d.follower.alt.toFixed(1);
+        document.getElementById('telem-f-speed').textContent = d.follower.speed.toFixed(1);
+        document.getElementById('telem-f-hdg').textContent = (d.follower.heading || 0).toFixed(0) + '\u00B0';
+        document.getElementById('telem-f-home').textContent = fHome.toFixed(0) + 'm';
+        document.getElementById('telem-f-gps').textContent = d.follower.lat !== 0
+            ? d.follower.lat.toFixed(6) + ', ' + d.follower.lon.toFixed(6) : '---';
+
+        // ── Top bar ──
         const pdTop = document.getElementById('peer-dist-top');
         pdTop.textContent = dist.toFixed(1) + 'm';
         pdTop.style.color = dist < 2 ? 'var(--danger)' : dist < 5 ? 'var(--warning)' : 'var(--success)';
         document.getElementById('leader-alt-top').textContent = d.leader.alt.toFixed(1) + 'm';
         document.getElementById('follower-alt-top').textContent = d.follower.alt.toFixed(1) + 'm';
 
-        // Network monitor
+        // ── Geofence circle color ──
+        if (maxHome > GEOFENCE_RADIUS_M) {
+            geofenceCircle.setStyle({color: '#f87171', fillColor: '#f87171', fillOpacity: 0.06});
+        } else if (maxHome > GEOFENCE_RADIUS_M * 0.8) {
+            geofenceCircle.setStyle({color: '#fbbf24', fillColor: '#fbbf24', fillOpacity: 0.04});
+        } else {
+            geofenceCircle.setStyle({color: '#fbbf24', fillColor: '#fbbf24', fillOpacity: 0.02});
+        }
+
+        // ── Network monitor ──
         if (d.network) {
             const n = d.network;
-            const lDot = document.getElementById('net-leader-dot');
-            lDot.className = 'net-dot ' + (n.leader_rx_rate > 0 ? 'alive' : 'dead');
+            document.getElementById('net-leader-dot').className = 'net-dot ' + (n.leader_rx_rate > 0 ? 'alive' : 'dead');
             document.getElementById('net-leader-rate').textContent = n.leader_rx_rate.toFixed(1) + '/s';
             document.getElementById('net-leader-count').textContent = n.leader_rx_count + ' pkts';
-
-            const fDot = document.getElementById('net-follower-dot');
-            fDot.className = 'net-dot ' + (n.follower_rx_rate > 0 ? 'alive' : 'dead');
+            document.getElementById('net-follower-dot').className = 'net-dot ' + (n.follower_rx_rate > 0 ? 'alive' : 'dead');
             document.getElementById('net-follower-rate').textContent = n.follower_rx_rate.toFixed(1) + '/s';
             document.getElementById('net-follower-count').textContent = n.follower_rx_count + ' pkts';
-
             document.getElementById('net-leader-cmd').textContent = n.leader_cmd_count + ' cmds';
             document.getElementById('net-follower-cmd').textContent = n.follower_cmd_count + ' cmds';
         }
     });
 
-    // ── Log ───────────────────────────────────────────────
+    // ── Log ─────────────────────────────────────────────────
     socket.on('log', function(d) {
-        const area = document.getElementById('log-area');
-        const line = document.createElement('div');
-        const t = new Date().toLocaleTimeString('en-US', {hour12: false});
-        line.textContent = t + ' ' + d.msg;
-        area.appendChild(line);
-        area.scrollTop = area.scrollHeight;
-        while (area.children.length > 50) area.removeChild(area.firstChild);
+        addLog(d.msg);
     });
 
     // ═══════════════════════════════════════════════════════════
@@ -491,6 +632,7 @@
         line.textContent = t + ' ' + msg;
         area.appendChild(line);
         area.scrollTop = area.scrollHeight;
+        while (area.children.length > 50) area.removeChild(area.firstChild);
     }
 
     // ═══════════════════════════════════════════════════════════
@@ -499,21 +641,17 @@
     document.addEventListener('keydown', function(e) {
         if (e.target.tagName === 'INPUT') return;
         const k = e.key.toLowerCase();
-
-        if (k === 'r') { cmdRTL(); }
-        else if (k === 'l') { cmdLand(); }
-        else if (k === 'k') { cmdKill(); }
-        else if (k === '1') { setTarget('leader'); }
-        else if (k === '2') { setTarget('follower'); }
-        else if (k === '3') { setTarget('both'); }
+        if (k === 'r') cmdRTL();
+        else if (k === 'l') cmdLand();
+        else if (k === 'k') cmdKill();
+        else if (k === '1') setTarget('leader');
+        else if (k === '2') setTarget('follower');
+        else if (k === '3') setTarget('both');
     });
 
-    // ── Disable auto-center when user pans ────────────────
+    // Disable auto-center on pan, re-enable on double-click
     map.on('dragstart', function() { autoCenter = false; });
-    map.on('dblclick', function(e) {
-        autoCenter = true;
-        e.originalEvent.preventDefault();
-    });
+    map.on('dblclick', function(e) { autoCenter = true; e.originalEvent.preventDefault(); });
 
     </script>
 </body>
