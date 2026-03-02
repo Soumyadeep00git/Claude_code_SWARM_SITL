@@ -15,6 +15,7 @@ from dataclasses import dataclass
 from .mode_selector import ModeSelector, GuidanceMode
 from .velocity import VelocityComputer
 from .output_safety import OutputSafety
+from .collision_avoidance import collision_filter
 
 METERS_PER_DEG_LAT = 111_320.0
 _EPS = 1e-6
@@ -115,6 +116,8 @@ def compute_guidance(
     goal_lat: float, goal_lon: float, goal_alt: float,
     cfg: GuidanceConfig = None,
     state: GuidanceState = None,
+    neighbors: list = None,
+    my_id: int = 0,
 ) -> dict:
     """Compute hard-switched velocity command.
 
@@ -195,7 +198,8 @@ def compute_guidance(
         vn, ve = _velocity.catchup(
             err_n, err_e, err_mag,
             peer_vn, peer_ve,
-            cfg.max_catchup_speed, cfg.ff_gain)
+            cfg.max_catchup_speed, cfg.ff_gain,
+            cfg.catchup_dist_m)
 
     else:
         # ── TRACKING (delegated to VelocityComputer) ─────────
@@ -212,6 +216,12 @@ def compute_guidance(
     vd = 0.0
     if goal_ok:
         vd = _velocity.vertical(goal_alt, my_alt, cfg.max_vertical_speed)
+
+    # ── Collision avoidance filter (3D repulsive blend) ─────
+    if neighbors:
+        vn, ve, vd, ca_flags = collision_filter(
+            vn, ve, vd, my_lat, my_lon, my_alt, my_id, neighbors)
+        flags.update(ca_flags)
 
     # ── Output safety (delegated to OutputSafety) ────────────
     # Use a temporary OutputSafety with state's prev_vel for backward compat

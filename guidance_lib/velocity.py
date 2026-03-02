@@ -51,20 +51,28 @@ class VelocityComputer:
                 err_n: float, err_e: float, err_mag: float,
                 peer_vn: float, peer_ve: float,
                 max_catchup_speed: float, ff_gain: float,
+                catchup_dist_m: float = 8.0,
                 ) -> tuple[float, float]:
         """Sprint toward target with leader feedforward.
 
-        Returns (vn, ve) clamped to max_catchup_speed.
+        Speed ramps down as follower approaches the catchup boundary
+        to prevent overshoot on the hard switch to TRACKING.
+
+        Returns (vn, ve) clamped to ramped speed.
         """
+        # Ramp: full speed at 2x catchup_dist, taper to 60% at boundary
+        ramp = _clamp(err_mag / (catchup_dist_m * 2.0), 0.3, 1.0)
+        speed_limit = max_catchup_speed * ramp
+
         u_n = err_n / err_mag
         u_e = err_e / err_mag
-        vn = max_catchup_speed * u_n + ff_gain * peer_vn
-        ve = max_catchup_speed * u_e + ff_gain * peer_ve
+        vn = speed_limit * u_n + ff_gain * peer_vn
+        ve = speed_limit * u_e + ff_gain * peer_ve
 
         speed = _mag(vn, ve)
-        if speed > max_catchup_speed:
-            vn *= max_catchup_speed / speed
-            ve *= max_catchup_speed / speed
+        if speed > speed_limit:
+            vn *= speed_limit / speed
+            ve *= speed_limit / speed
 
         return vn, ve
 

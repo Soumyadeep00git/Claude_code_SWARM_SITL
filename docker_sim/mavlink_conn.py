@@ -30,6 +30,11 @@ class MavlinkConn:
         log.info("Connected drone_id=%d sysid=%d compid=%d",
                  DRONE_ID, self.sysid, self.compid)
 
+        # Cached state — survives across drain_latest() calls so that
+        # a single tick with no MAVLink message doesn't lose GPS/mode info.
+        self._cached_pos = None
+        self._cached_hb = None
+
         self.conn.mav.request_data_stream_send(
             self.sysid, self.compid,
             mavutil.mavlink.MAV_DATA_STREAM_ALL,
@@ -104,7 +109,7 @@ class MavlinkConn:
         result = {}
 
         if last_pos is not None:
-            result['position'] = {
+            self._cached_pos = {
                 'lat': last_pos.lat / 1e7,
                 'lon': last_pos.lon / 1e7,
                 'alt': last_pos.relative_alt / 1000.0,
@@ -114,10 +119,16 @@ class MavlinkConn:
                 'heading': last_pos.hdg / 100.0,
             }
 
+        if self._cached_pos is not None:
+            result['position'] = self._cached_pos
+
         if last_hb is not None:
             mode = mavutil.mode_string_v10(last_hb)
             armed = bool(last_hb.base_mode
                          & mavutil.mavlink.MAV_MODE_FLAG_SAFETY_ARMED)
-            result['heartbeat'] = {'mode': mode, 'armed': armed}
+            self._cached_hb = {'mode': mode, 'armed': armed}
+
+        if self._cached_hb is not None:
+            result['heartbeat'] = self._cached_hb
 
         return result

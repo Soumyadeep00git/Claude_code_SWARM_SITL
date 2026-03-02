@@ -27,7 +27,7 @@ from docker_sim.config import CONTROL_HZ, TAKEOFF_ALT_M
 from docker_sim.mavlink_conn import MavlinkConn
 from docker_sim.mavlink_bridge import (
     MavlinkBridge,
-    CMD_RTL, CMD_LAND, CMD_KILL, CMD_FOLLOW, CMD_HOVER,
+    CMD_RTL, CMD_LAND, CMD_KILL, CMD_FOLLOW, CMD_HOVER, CMD_TAKEOFF,
 )
 from docker_sim.takeoff import TakeoffManager
 
@@ -75,6 +75,7 @@ class MissionContext:
     fs_state: FailsafeState
     ctrl: object = None              # FollowerController, created after takeoff
     takeoff: TakeoffManager = None   # created at TAKEOFF enter
+    leader_id: int = None            # drone_id of assigned leader (from hierarchy)
 
     # Mission state
     current_mission: Mission = Mission.IDLE
@@ -83,6 +84,8 @@ class MissionContext:
     rtl_sent: bool = False
     has_gps: bool = False
     has_leader: bool = False
+    wants_follow: bool = False   # True = user commanded Pursuit, auto-resume after failsafe clears
+    is_airborne: bool = False    # True once TAKEOFF completes (guards FOLLOW)
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -100,7 +103,7 @@ def check_status(ctx: MissionContext) -> FlightStatus:
         if ctx.ctrl is not None:
             ctx.ctrl.update_own_state(pos)
 
-    leader = ctx.bridge.get_peer_state()
+    leader = ctx.bridge.get_peer_state(ctx.leader_id)
 
     return FlightStatus(
         pos=pos,
@@ -116,11 +119,12 @@ def check_status(ctx: MissionContext) -> FlightStatus:
 # ═══════════════════════════════════════════════════════════════
 
 _RC_CMD_MAP = {
-    CMD_FOLLOW: Mission.FOLLOW,
-    CMD_HOVER:  Mission.HOVER,
-    CMD_RTL:    Mission.RTL,
-    CMD_LAND:   Mission.LAND,
-    CMD_KILL:   Mission.KILL,
+    CMD_TAKEOFF: Mission.TAKEOFF,
+    CMD_FOLLOW:  Mission.FOLLOW,
+    CMD_HOVER:   Mission.HOVER,
+    CMD_RTL:     Mission.RTL,
+    CMD_LAND:    Mission.LAND,
+    CMD_KILL:    Mission.KILL,
 }
 
 
@@ -146,17 +150,32 @@ def get_mission(status: FlightStatus, ctx: MissionContext) -> Mission:
             rc_mission = mapped
 
     if rc_mission is not None:
-        # Physical constraint: FOLLOW requires GPS
+        # Physical constraints
         if rc_mission == Mission.FOLLOW and not status.gps_valid:
             log.warning("RC: FOLLOW denied — no GPS, staying %s", mission.value)
+        elif rc_mission == Mission.FOLLOW and not ctx.is_airborne:
+            log.warning("RC: FOLLOW denied — not airborne yet (currently %s)", mission.value)
+        elif rc_mission == Mission.TAKEOFF and mission != Mission.IDLE:
+            log.warning("RC: TAKEOFF denied — not in IDLE (currently %s)", mission.value)
         else:
             mission = rc_mission
+            # Track user intent for auto-resume
+            if rc_mission == Mission.FOLLOW:
+                ctx.wants_follow = True
+            elif rc_mission in (Mission.HOVER, Mission.RTL, Mission.LAND, Mission.KILL):
+                ctx.wants_follow = False
 
-    # ── Global failsafe (runs for all airborne missions) ──
-    if mission in (Mission.HOVER, Mission.FOLLOW, Mission.TAKEOFF):
-        # For non-FOLLOW missions, disable leader-specific checks
-        # by passing leader_fresh=True, peer_gps_valid=False, in_catchup=False
-        if mission == Mission.FOLLOW:
+    # ── Global failsafe (runs for airborne missions only) ──
+    # TAKEOFF excluded — TakeoffManager has its own 120s timeout and
+    # intermittent position data during pre-arm/arm causes false NO_OWN_GPS.
+    failsafe_clear = True
+    if mission in (Mission.HOVER, Mission.FOLLOW):
+        # Use full leader checks if actively following OR hovering with intent
+        # to resume (wants_follow). This prevents auto-resume from defeating
+        # geofence/stale failsafes that caused the HOVER in the first place.
+        check_leader = (mission == Mission.FOLLOW
+                        or (mission == Mission.HOVER and ctx.wants_follow))
+        if check_leader:
             fs = compute_failsafe(
                 own_lat=status.pos['lat'] if status.pos else 0.0,
                 own_lon=status.pos['lon'] if status.pos else 0.0,
@@ -186,6 +205,7 @@ def get_mission(status: FlightStatus, ctx: MissionContext) -> Mission:
             )
 
         if not fs['safe']:
+            failsafe_clear = False
             log.warning("FAILSAFE: %s action=%s", fs['flags'], fs['action'])
             if fs['action'] == 'RTL':
                 mission = Mission.RTL
@@ -194,12 +214,19 @@ def get_mission(status: FlightStatus, ctx: MissionContext) -> Mission:
                     mission = Mission.HOVER
 
     # ── Auto-promotions (only if RC/failsafe didn't override) ──
-    if mission == Mission.IDLE and ctx.has_gps:
-        mission = Mission.TAKEOFF
+    # TAKEOFF requires explicit GCS CMD_TAKEOFF — no auto-promotion from IDLE.
+
+    # Auto-resume FOLLOW only when failsafe is CLEAR this tick
+    if (mission == Mission.HOVER and ctx.wants_follow
+            and failsafe_clear
+            and status.leader_fresh and status.gps_valid):
+        log.info("Failsafe cleared — resuming FOLLOW")
+        mission = Mission.FOLLOW
 
     if mission == Mission.TAKEOFF and ctx.takeoff and ctx.takeoff.complete:
         log.info("Airborne!")
         mission = Mission.HOVER
+        ctx.is_airborne = True
 
     if mission == Mission.FOLLOW and ctx.no_leader_count > CONTROL_HZ * 30:
         log.warning("Leader lost for 30s — RTL")
@@ -314,18 +341,21 @@ def do_follow(status: FlightStatus, ctx: MissionContext) -> bool:
     # Run guidance
     result = ctx.ctrl.tick(status.leader)
 
+    if result is None:
+        # Leader momentarily unavailable — hold position instead of drifting
+        ctx.conn.send_velocity_ned(0, 0, 0)
+        return True
+
     # Report guidance mode to bridge for telemetry
     _MODE_CODES = {'TRACKING': 1, 'CATCHUP': 2, 'EVASION': 3}
-    if result:
-        ctx.bridge.set_guidance_mode(_MODE_CODES.get(result['mode'], 0))
+    ctx.bridge.set_guidance_mode(_MODE_CODES.get(result['mode'], 0))
 
-    if result and result.get('emergency'):
+    if result.get('emergency'):
         log.warning("GUIDANCE EMERGENCY: flags=%s mode=%s",
                     result['flags'], result['mode'])
 
     # Track guidance mode for next tick's failsafe
-    if result:
-        ctx.last_guidance_mode = result['mode']
+    ctx.last_guidance_mode = result['mode']
 
     return True
 

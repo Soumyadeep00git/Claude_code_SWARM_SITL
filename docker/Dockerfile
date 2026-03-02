@@ -50,6 +50,9 @@ WORKDIR /app
 COPY docker_sim/ /app/docker_sim/
 COPY guidance_lib/ /app/guidance_lib/
 COPY failsafe_lib/ /app/failsafe_lib/
+COPY swarm_lib/ /app/swarm_lib/
+COPY hierarchy.yaml /app/hierarchy.yaml
+COPY docker/params/ /app/params/
 COPY docker/entrypoint.sh /app/entrypoint.sh
 RUN chmod +x /app/entrypoint.sh
 
@@ -58,5 +61,6 @@ ENV PYTHONUNBUFFERED=1
 ENV PYTHONPATH=/app
 ENV ARDUCOPTER_BIN=/home/ardupilot/ardupilot/build/sitl/bin/arducopter
 ENV COPTER_DEFAULTS=/home/ardupilot/ardupilot/Tools/autotest/default_params/copter.parm
+ENV MP_PARAMS=/app/params/mission_planner.parm
 
 ENTRYPOINT ["/app/entrypoint.sh"]

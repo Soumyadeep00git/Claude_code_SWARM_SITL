@@ -9,7 +9,7 @@ import time
 
 from docker_sim.config import (
     ARDUCOPTER_BIN, COPTER_DEFAULTS,
-    DRONE_ID, SYSID, SITL_PORT, HOME_STR, WORK_DIR,
+    DRONE_ID, SYSID, SITL_PORT, MP_PORT, HOME_STR, WORK_DIR,
 )
 
 log = logging.getLogger(__name__)
@@ -30,19 +30,26 @@ class SITLLauncher:
 
         os.makedirs(WORK_DIR, exist_ok=True)
 
+        # Build defaults list: stock copter params + Mission Planner serial
+        mp_params = os.environ.get("MP_PARAMS", "")
+        defaults = COPTER_DEFAULTS
+        if mp_params and os.path.isfile(mp_params):
+            defaults = f"{COPTER_DEFAULTS},{mp_params}"
+
         cmd = [
             ARDUCOPTER_BIN,
             "--model", "+",
             "--speedup", "1",
             "--slave", "0",
-            "--defaults", COPTER_DEFAULTS,
+            "--defaults", defaults,
+            f"--serial2=tcp:{MP_PORT}",
             f"-I{DRONE_ID}",
             "--home", HOME_STR,
             "--sysid", str(SYSID),
         ]
 
-        log.info("Launching SITL drone_id=%d sysid=%d port=%d home=%s",
-                 DRONE_ID, SYSID, SITL_PORT, HOME_STR)
+        log.info("Launching SITL drone_id=%d sysid=%d port=%d mp_port=%d home=%s",
+                 DRONE_ID, SYSID, SITL_PORT, MP_PORT, HOME_STR)
 
         self.proc = subprocess.Popen(
             cmd,

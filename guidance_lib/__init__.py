@@ -29,3 +29,4 @@ from .target import TargetComputer
 from .mode_selector import ModeSelector, GuidanceMode
 from .velocity import VelocityComputer
 from .output_safety import OutputSafety
+from .collision_avoidance import collision_filter

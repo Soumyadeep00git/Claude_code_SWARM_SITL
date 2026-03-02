@@ -10,6 +10,8 @@ WORKDIR /app
 COPY docker_sim/ /app/docker_sim/
 COPY guidance_lib/ /app/guidance_lib/
 COPY failsafe_lib/ /app/failsafe_lib/
+COPY swarm_lib/ /app/swarm_lib/
+COPY hierarchy.yaml /app/hierarchy.yaml
 
 # ── Environment defaults ─────────────────────────────────────
 ENV PYTHONUNBUFFERED=1
