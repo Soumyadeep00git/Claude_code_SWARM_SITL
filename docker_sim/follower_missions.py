@@ -1,13 +1,14 @@
 """Mission-dispatch architecture for the follower drone.
 
 Missions:
-    IDLE     — pre-takeoff, waiting for GPS/leader
-    TAKEOFF  — climbing to target altitude
-    HOVER    — hold position (default after takeoff)
-    FOLLOW   — guidance loop with leader
-    RTL      — return to launch (terminal)
-    LAND     — land at current position (terminal)
-    KILL     — force disarm (terminal)
+    IDLE             — pre-takeoff, waiting for GPS/leader
+    TAKEOFF          — climbing to target altitude
+    HOVER            — hold position (default after takeoff)
+    FOLLOW           — guidance loop with leader
+    GEOFENCE_RETURN  — fly radially toward home (recoverable)
+    RTL              — return to launch (terminal)
+    LAND             — land at current position (terminal)
+    KILL             — force disarm (terminal)
 
 Main loop (called from follower_main.py):
     1. check_status()    — GPS, battery, heartbeat snapshot
@@ -19,6 +20,7 @@ current_mission — they only set flags that get_mission reads next tick.
 """
 
 import logging
+import math
 import time
 from dataclasses import dataclass, field
 from enum import Enum
@@ -36,19 +38,23 @@ from failsafe_lib import FailsafeConfig, FailsafeState, compute_failsafe
 
 log = logging.getLogger("follower")
 
+_METERS_PER_DEG_LAT = 111_320.0
+_GEOFENCE_RETURN_SPEED = 3.0  # m/s — gentle push toward home
+
 
 # ═══════════════════════════════════════════════════════════════
 # Mission enum
 # ═══════════════════════════════════════════════════════════════
 
 class Mission(Enum):
-    IDLE    = "IDLE"
-    TAKEOFF = "TAKEOFF"
-    HOVER   = "HOVER"
-    FOLLOW  = "FOLLOW"
-    RTL     = "RTL"
-    LAND    = "LAND"
-    KILL    = "KILL"
+    IDLE            = "IDLE"
+    TAKEOFF         = "TAKEOFF"
+    HOVER           = "HOVER"
+    FOLLOW          = "FOLLOW"
+    GEOFENCE_RETURN = "GEOFENCE_RETURN"
+    RTL             = "RTL"
+    LAND            = "LAND"
+    KILL            = "KILL"
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -169,10 +175,11 @@ def get_mission(status: FlightStatus, ctx: MissionContext) -> Mission:
     # TAKEOFF excluded — TakeoffManager has its own 120s timeout and
     # intermittent position data during pre-arm/arm causes false NO_OWN_GPS.
     failsafe_clear = True
-    if mission in (Mission.HOVER, Mission.FOLLOW):
+    if mission in (Mission.HOVER, Mission.FOLLOW, Mission.GEOFENCE_RETURN):
         # Use full leader checks if actively following OR hovering with intent
         # to resume (wants_follow). This prevents auto-resume from defeating
         # geofence/stale failsafes that caused the HOVER in the first place.
+        # GEOFENCE_RETURN doesn't need leader checks — just flying home.
         check_leader = (mission == Mission.FOLLOW
                         or (mission == Mission.HOVER and ctx.wants_follow))
         if check_leader:
@@ -209,9 +216,17 @@ def get_mission(status: FlightStatus, ctx: MissionContext) -> Mission:
             log.warning("FAILSAFE: %s action=%s", fs['flags'], fs['action'])
             if fs['action'] == 'RTL':
                 mission = Mission.RTL
+            elif fs['action'] == 'GEOFENCE_RETURN':
+                if mission not in (Mission.RTL, Mission.LAND, Mission.KILL):
+                    mission = Mission.GEOFENCE_RETURN
             else:
                 if mission not in (Mission.RTL, Mission.LAND, Mission.KILL):
                     mission = Mission.HOVER
+
+    # ── Geofence recovery: back inside → HOVER (then auto-resume) ──
+    if mission == Mission.GEOFENCE_RETURN and failsafe_clear:
+        log.info("Back inside geofence — resuming HOVER")
+        mission = Mission.HOVER
 
     # ── Auto-promotions (only if RC/failsafe didn't override) ──
     # TAKEOFF requires explicit GCS CMD_TAKEOFF — no auto-promotion from IDLE.
@@ -253,13 +268,14 @@ def execute_mission(mission: Mission, status: FlightStatus,
 
     # ── Dispatch ──
     handlers = {
-        Mission.IDLE:    do_idle,
-        Mission.TAKEOFF: do_takeoff,
-        Mission.HOVER:   do_hover,
-        Mission.FOLLOW:  do_follow,
-        Mission.RTL:     do_rtl,
-        Mission.LAND:    do_land,
-        Mission.KILL:    do_kill,
+        Mission.IDLE:            do_idle,
+        Mission.TAKEOFF:         do_takeoff,
+        Mission.HOVER:           do_hover,
+        Mission.FOLLOW:          do_follow,
+        Mission.GEOFENCE_RETURN: do_geofence_return,
+        Mission.RTL:             do_rtl,
+        Mission.LAND:            do_land,
+        Mission.KILL:            do_kill,
     }
     return handlers[mission](status, ctx)
 
@@ -357,6 +373,34 @@ def do_follow(status: FlightStatus, ctx: MissionContext) -> bool:
     # Track guidance mode for next tick's failsafe
     ctx.last_guidance_mode = result['mode']
 
+    return True
+
+
+def do_geofence_return(status: FlightStatus, ctx: MissionContext) -> bool:
+    """Fly radially toward home to get back inside geofence.
+
+    Computes NED vector from drone position to home, sends velocity along it.
+    Recoverable: once back inside geofence, get_mission() transitions to HOVER.
+    """
+    # Report FAILSAFE mode (code 4) to GCS for UI display
+    ctx.bridge.set_guidance_mode(4)
+
+    if not status.gps_valid or not status.pos:
+        ctx.conn.send_velocity_ned(0, 0, 0)
+        return True
+
+    home_lat = ctx.fs_cfg.home_lat
+    home_lon = ctx.fs_cfg.home_lon
+
+    dn = (home_lat - status.pos['lat']) * _METERS_PER_DEG_LAT
+    de = ((home_lon - status.pos['lon']) * _METERS_PER_DEG_LAT
+          * math.cos(math.radians(home_lat)))
+    dist = math.sqrt(dn * dn + de * de + 1e-6)
+
+    vn = _GEOFENCE_RETURN_SPEED * dn / dist
+    ve = _GEOFENCE_RETURN_SPEED * de / dist
+
+    ctx.conn.send_velocity_ned(vn, ve, 0)
     return True
 
 

@@ -14,6 +14,5 @@ failsafe:
   geofence_radius_m: 200.0        # HOVER/RTL if leader or follower beyond this from home (m)
   deadman_ticks: 20               # ticks with no own GPS before DEADMAN (RTL)
   leader_stale_ticks: 50          # ticks before LEADER_STALE escalates to HOVER
-  catchup_timeout_ticks: 300      # RTL after this many consecutive CATCHUP ticks (0=disabled)
-                                  #   300 ticks at 10Hz = 30 seconds
+  catchup_timeout_ticks: 0        # disabled — operator RTLs manually from GCS
   max_altitude_m: 100.0           # HOVER if follower altitude exceeds this (m)

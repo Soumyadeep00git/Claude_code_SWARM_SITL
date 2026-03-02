@@ -25,21 +25,20 @@ guidance:
   kd: 0.4              # velocity damping. Higher = less overshoot.
   ff_gain: 0.8         # leader velocity feedforward. 0=reactive, 1=full prediction.
 
-  # Catch-up mode
+  # Catch-up mode (kinematic speed limiting)
   catchup_dist_m: 8.0  # error above this triggers CATCHUP
-  max_catchup_speed: 4.0  # max horizontal speed in CATCHUP (m/s)
+  max_catchup_speed: 17.0  # absolute hard ceiling (m/s)
+  catchup_decel: 2.5   # assumed braking decel for v_max = sqrt(2*a*d) (m/s²)
 
   # Evasion mode
   safety_dist_m: 1.0   # peer distance below this triggers EVASION
   escape_speed: 3.0    # repulsion speed in EVASION (m/s)
 
   # Speed limits
-  max_speed: 3.0       # horizontal speed cap in TRACKING (m/s)
+  max_speed: 17.0      # horizontal speed cap in TRACKING (m/s) — same as catchup ceiling
   max_vertical_speed: 1.5  # vertical speed cap, all modes (m/s)
-  max_accel: 4.0       # max velocity change per tick (m/s). Scale for loop rate.
-                        #   10Hz: 4.0 (default)
-                        #   20Hz: 2.0
-                        #   50Hz: 0.8
+  max_accel: 0.25      # max velocity change per tick (m/s). = 2.5 m/s² at 10Hz.
+                        #   This is the single tuning knob for acceleration.
 
   # Altitude safety
   min_altitude_m: 3.0       # soft floor: starts pushing up gradually

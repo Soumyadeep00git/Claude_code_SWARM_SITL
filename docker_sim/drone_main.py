@@ -33,7 +33,7 @@ from docker_sim.takeoff import TakeoffManager
 from docker_sim.mavlink_bridge import (
     MavlinkBridge, CMD_NAMES,
     CMD_RTL, CMD_LAND, CMD_KILL, CMD_HOVER,
-    CMD_WASD, CMD_TAKEOFF, CMD_FOLLOW,
+    CMD_WASD, CMD_TAKEOFF, CMD_FOLLOW, CMD_ALTITUDE,
 )
 
 _TAG = f"DRONE-{DRONE_ID}-{DRONE_ROLE.upper()}"
@@ -169,6 +169,7 @@ def _leader_loop(conn, bridge):
     mode = "HOVER"
     wasd_vn = 0.0
     wasd_ve = 0.0
+    wasd_vd = 0.0
 
     while _running:
         tick_start = time.time()
@@ -206,10 +207,13 @@ def _leader_loop(conn, bridge):
                 mode = "HOVER"
                 wasd_vn = 0.0
                 wasd_ve = 0.0
+                wasd_vd = 0.0
             elif c == CMD_WASD:
                 wasd_vn = gcs_cmd.get('vn', 0.0)
                 wasd_ve = gcs_cmd.get('ve', 0.0)
                 mode = "WASD" if (wasd_vn != 0 or wasd_ve != 0) else "HOVER"
+            elif c == CMD_ALTITUDE:
+                wasd_vd = gcs_cmd.get('vd', 0.0)
             elif c == CMD_TAKEOFF:
                 log.info("GCS: TAKEOFF ignored (already airborne)")
             else:
@@ -220,9 +224,9 @@ def _leader_loop(conn, bridge):
             break
 
         if mode == "HOVER":
-            conn.send_velocity_ned(0, 0, 0)
+            conn.send_velocity_ned(0, 0, wasd_vd)
         elif mode == "WASD":
-            conn.send_velocity_ned(wasd_vn, wasd_ve, 0)
+            conn.send_velocity_ned(wasd_vn, wasd_ve, wasd_vd)
 
         _sleep_tick(tick_start)
 
@@ -293,18 +297,19 @@ def _follower_loop(conn, bridge):
 # ═══════════════════════════════════════════════════════════════
 
 def _shutdown(bridge, conn, launcher):
-    """Phase 8: Cleanup."""
+    """Phase 8: Cleanup — bridge stays alive until container dies."""
     log.info("=" * 50)
     log.info("Shutdown")
     log.info("=" * 50)
 
-    bridge.stop()
     if conn:
-        # Wait for landing
+        # Wait for landing, keep updating bridge so telemetry keeps flowing
         land_deadline = time.time() + 60.0
         while time.time() < land_deadline:
             data = conn.drain_latest()
             pos = data.get('position')
+            if pos:
+                bridge.update_own_state(pos)
             if pos and pos['alt'] < 1.0:
                 log.info("Landed")
                 break

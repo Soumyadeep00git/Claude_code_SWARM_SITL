@@ -34,18 +34,19 @@ class GuidanceConfig:
     kd: float = 0.4
     ff_gain: float = 0.8
 
-    # Catch-up
+    # Catch-up (kinematic speed limiting)
     catchup_dist_m: float = 8.0
-    max_catchup_speed: float = 4.0
+    max_catchup_speed: float = 17.0
+    catchup_decel: float = 2.5
 
     # Evasion
     safety_dist_m: float = 1.0
     escape_speed: float = 3.0
 
     # Output limits
-    max_speed: float = 3.0
+    max_speed: float = 17.0
     max_vertical_speed: float = 1.5
-    max_accel: float = 4.0
+    max_accel: float = 0.25
 
     # Safety clamps
     min_altitude_m: float = 3.0
@@ -199,7 +200,7 @@ def compute_guidance(
             err_n, err_e, err_mag,
             peer_vn, peer_ve,
             cfg.max_catchup_speed, cfg.ff_gain,
-            cfg.catchup_dist_m)
+            cfg.catchup_dist_m, cfg.catchup_decel)
 
     else:
         # ── TRACKING (delegated to VelocityComputer) ─────────
@@ -277,7 +278,7 @@ def compute_escape(
     peer_vn: float = 0.0, peer_ve: float = 0.0,
     safety_dist: float = 1.0,
     escape_speed: float = 3.0,
-    max_accel: float = 4.0,
+    max_accel: float = 0.25,
     state: GuidanceState = None,
 ) -> dict:
     """Simple escape — pure radial repulsion away from peer.

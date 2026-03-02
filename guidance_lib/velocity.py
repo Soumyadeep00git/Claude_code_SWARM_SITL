@@ -52,17 +52,21 @@ class VelocityComputer:
                 peer_vn: float, peer_ve: float,
                 max_catchup_speed: float, ff_gain: float,
                 catchup_dist_m: float = 8.0,
+                catchup_decel: float = 2.5,
                 ) -> tuple[float, float]:
-        """Sprint toward target with leader feedforward.
+        """Kinematic catchup — speed limited by braking distance.
 
-        Speed ramps down as follower approaches the catchup boundary
-        to prevent overshoot on the hard switch to TRACKING.
+        v_max = min(sqrt(2 * catchup_decel * distance), max_catchup_speed)
 
-        Returns (vn, ve) clamped to ramped speed.
+        The follower accelerates freely up to whatever speed lets it
+        brake to zero within the remaining distance. The rate limiter
+        in output_safety handles actual acceleration smoothing.
+
+        Returns (vn, ve) clamped to kinematic speed limit.
         """
-        # Ramp: full speed at 2x catchup_dist, taper to 60% at boundary
-        ramp = _clamp(err_mag / (catchup_dist_m * 2.0), 0.3, 1.0)
-        speed_limit = max_catchup_speed * ramp
+        # Kinematic speed limit: can we stop in the remaining distance?
+        v_kinematic = math.sqrt(2.0 * catchup_decel * err_mag)
+        speed_limit = min(v_kinematic, max_catchup_speed)
 
         u_n = err_n / err_mag
         u_e = err_e / err_mag

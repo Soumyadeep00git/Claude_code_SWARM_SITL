@@ -36,25 +36,6 @@ services:
     tty: true
     depends_on:
     - drone-1
-  drone-3:
-    build:
-      context: ..
-      dockerfile: docker/Dockerfile
-    container_name: drone-3
-    ports:
-    - 5793:5793
-    environment:
-      DRONE_ID: '3'
-      HIERARCHY_PATH: /app/hierarchy.yaml
-      GCS_HOST: gcs
-    networks:
-    - drone_net
-    volumes:
-    - ../output:/app/output
-    stdin_open: true
-    tty: true
-    depends_on:
-    - drone-1
   gcs:
     build:
       context: ..

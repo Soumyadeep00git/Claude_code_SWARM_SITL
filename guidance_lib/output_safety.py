@@ -79,6 +79,8 @@ class OutputSafety:
             flags['ALTITUDE_CEILING'] = True
 
         # ── Horizontal speed cap ──
+        # CATCHUP uses kinematic limit (already applied by velocity computer),
+        # but we still enforce the hard ceiling here as a safety net.
         h_speed = _mag(vn, ve)
         speed_limit = max_catchup_speed if mode == 'CATCHUP' else max_speed
         if h_speed > speed_limit:

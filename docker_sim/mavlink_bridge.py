@@ -38,16 +38,19 @@ CMD_TAKEOFF = 6  # explicit takeoff command from GCS
 CMD_WASD = 10    # leader: velocity NED (payload: vn, ve floats)
 CMD_WAYPOINT = 11  # leader: fly to waypoint (payload: lat, lon doubles)
 CMD_SPEED = 12   # leader: set operating speed (payload: speed float)
+CMD_ALTITUDE = 13  # leader: vertical velocity (payload: vd float)
 
 _CMD_SIMPLE_SIZE = 1
 _CMD_WASD_FMT = "!Bff"
 _CMD_WAYPOINT_FMT = "!Bdd"
 _CMD_SPEED_FMT = "!Bf"
+_CMD_ALT_FMT = "!Bf"
 
 CMD_NAMES = {
     CMD_RTL: "RTL", CMD_LAND: "LAND", CMD_KILL: "KILL",
     CMD_FOLLOW: "FOLLOW", CMD_HOVER: "HOVER", CMD_TAKEOFF: "TAKEOFF",
     CMD_WASD: "WASD", CMD_WAYPOINT: "WAYPOINT", CMD_SPEED: "SPEED",
+    CMD_ALTITUDE: "ALTITUDE",
 }
 
 
@@ -369,6 +372,12 @@ class MavlinkBridge:
         if n == speed_size and cmd == CMD_SPEED:
             _, speed = struct.unpack(_CMD_SPEED_FMT, data)
             return {'cmd': CMD_SPEED, 'speed': speed}
+
+        # ALTITUDE: "!Bf" -> 5 bytes
+        alt_size = struct.calcsize(_CMD_ALT_FMT)
+        if n == alt_size and cmd == CMD_ALTITUDE:
+            _, vd = struct.unpack(_CMD_ALT_FMT, data)
+            return {'cmd': CMD_ALTITUDE, 'vd': vd}
 
         # WAYPOINT: "!Bdd" -> 17 bytes
         wp_size = struct.calcsize(_CMD_WAYPOINT_FMT)

@@ -9,7 +9,7 @@ Checks (priority order):
   1. Own GPS validity       → HOVER / RTL (DEADMAN after threshold)
   2. Leader data stale      → HOVER (after threshold ticks)
   3. Leader in oblivion     → HOVER (leader outside geofence)
-  4. Follower geofence      → RTL   (follower outside geofence)
+  4. Follower geofence      → GEOFENCE_RETURN (radial push toward home)
   5. Altitude ceiling       → HOVER (follower too high)
   6. Catchup timeout        → RTL   (stuck in CATCHUP too long)
 
@@ -88,7 +88,7 @@ def _dist_from_home(lat: float, lon: float,
 def _result(safe, action, flags, emergency, state):
     return {
         'safe': safe,
-        'action': action,          # 'CONTINUE', 'HOVER', 'RTL'
+        'action': action,          # 'CONTINUE', 'HOVER', 'GEOFENCE_RETURN', 'RTL'
         'flags': flags,
         'emergency': emergency,
         'tick': state.tick_count,
@@ -169,14 +169,14 @@ def compute_failsafe(
             flags['leader_home_dist'] = round(leader_dist, 1)
             return _result(False, 'HOVER', flags, True, state)
 
-    # ── 4. Follower outside geofence ──────────────────────────
+    # ── 4. Follower outside geofence → radial return ──────────
     if own_gps_valid and home_ok:
         follower_dist = _dist_from_home(
             own_lat, own_lon, cfg.home_lat, cfg.home_lon)
         if follower_dist > cfg.geofence_radius_m:
             flags['GEOFENCE'] = True
             flags['follower_home_dist'] = round(follower_dist, 1)
-            return _result(False, 'RTL', flags, True, state)
+            return _result(False, 'GEOFENCE_RETURN', flags, False, state)
 
     # ── 5. Altitude ceiling ───────────────────────────────────
     if cfg.max_altitude_m > 0 and own_alt > cfg.max_altitude_m:

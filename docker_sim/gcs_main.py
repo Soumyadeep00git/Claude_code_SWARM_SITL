@@ -59,9 +59,11 @@ CMD_FOLLOW = 4
 CMD_HOVER = 5
 CMD_TAKEOFF = 6
 CMD_WASD = 10
+CMD_ALTITUDE = 13
 
 _CMD_SIMPLE_FMT = "!B"
 _CMD_WASD_FMT = "!Bff"
+_CMD_ALT_FMT = "!Bf"
 
 _CMD_NAME_MAP = {
     "TAKEOFF": CMD_TAKEOFF, "RTL": CMD_RTL, "LAND": CMD_LAND,
@@ -179,6 +181,14 @@ class CommandSender:
         except (OSError, socket.gaierror) as e:
             log.error("Failed to send to %s:%d: %s", host, port, e)
 
+    def send_altitude(self, host: str, port: int, vd: float, drone_id: int = 0):
+        data = struct.pack(_CMD_ALT_FMT, CMD_ALTITUDE, vd)
+        try:
+            self._sock.sendto(data, (host, port))
+            self.cmd_counts[drone_id] = self.cmd_counts.get(drone_id, 0) + 1
+        except (OSError, socket.gaierror) as e:
+            log.error("Failed to send to %s:%d: %s", host, port, e)
+
 
 # ═══════════════════════════════════════════════════════════════
 # Swarm GCS (dynamic N-drone)
@@ -246,6 +256,7 @@ class SwarmGCS:
         self.cmd_sender.send_simple(host, port, cmd_code, drone_id)
         self.drone_modes[drone_id] = cmd_name
         self.sio.emit("log", {"msg": f"Drone {drone_id}: {cmd_name}"})
+        self.sio.emit("drone_event", {"drone_id": drone_id, "type": "cmd", "msg": cmd_name})
         self._emit_mode_update()
 
     def _send_wasd_to_drone(self, drone_id, vn, ve):
@@ -257,6 +268,14 @@ class SwarmGCS:
         self.cmd_sender.send_wasd(host, port, vn, ve, drone_id)
         self.drone_modes[drone_id] = "WASD" if (vn != 0 or ve != 0) else "HOVER"
         self._emit_mode_update()
+
+    def _send_altitude_to_drone(self, drone_id, vd):
+        """Send vertical velocity to a drone by ID."""
+        if drone_id not in self.topology.nodes:
+            return
+        host = container_name(drone_id)
+        port = gcs_cmd_port(drone_id)
+        self.cmd_sender.send_altitude(host, port, vd, drone_id)
 
     def _register_events(self):
         sio = self.sio
@@ -280,6 +299,12 @@ class SwarmGCS:
             vn = float(data.get("vn", 0))
             ve = float(data.get("ve", 0))
             self._send_wasd_to_drone(did, vn, ve)
+
+        @sio.on("drone_altitude")
+        def on_drone_altitude(data):
+            did = int(data.get("drone_id", 0))
+            vd = float(data.get("vd", 0))
+            self._send_altitude_to_drone(did, vd)
 
         @sio.on("all_cmd")
         def on_all_cmd(data):
