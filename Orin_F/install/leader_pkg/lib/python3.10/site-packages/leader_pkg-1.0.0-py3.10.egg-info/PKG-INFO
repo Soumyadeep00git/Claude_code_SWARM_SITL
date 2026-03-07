@@ -1,0 +1,12 @@
+Metadata-Version: 2.1
+Name: leader-pkg
+Version: 1.0.0
+Summary: ROS2 leader drone nodes for Orin AGX hardware
+Home-page: UNKNOWN
+Maintainer: swarm_dev
+Maintainer-email: dev@swarm.local
+License: MIT
+Platform: UNKNOWN
+
+UNKNOWN
+

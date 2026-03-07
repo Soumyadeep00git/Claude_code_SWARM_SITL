@@ -1,0 +1,23 @@
+# ================================================================
+#  SWARM HIERARCHY — single source of truth for drone topology
+# ================================================================
+#  Defines which drones exist, their roles, and follow relationships.
+#  Used by: swarm_lib, docker_sim, GCS, generate_compose.py
+#
+#  Scale by adding more drones. Each follower follows exactly ONE leader.
+# ================================================================
+
+home:
+  lat: 27.0000000       # <-- SET YOUR EXACT field GPS latitude before flight
+  lon: 77.0000000       # <-- SET YOUR EXACT field GPS longitude before flight
+
+drones:
+  1:
+    role: leader
+    home_spacing_m: 0
+
+  2:
+    role: follower
+    leader_id: 1
+    offset: [-4.0, 3.0, 0.0]     # 4m behind, 3m right of leader (NED) = 5m diagonal separation
+    home_spacing_m: 5            # same home as leader

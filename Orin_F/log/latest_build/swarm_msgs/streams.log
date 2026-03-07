@@ -1,0 +1,283 @@
+[0.024s] Invoking command in '/home/iris1/swarm_ws/src/orin/build/swarm_msgs': CMAKE_PREFIX_PATH=${CMAKE_PREFIX_PATH}:/home/iris1/swarm_ws/install/leader_pkg:/home/iris1/swarm_ws/install/follower_pkg:/opt/ros/humble /usr/bin/cmake /home/iris1/swarm_ws/src/orin/swarm_msgs -DCMAKE_INSTALL_PREFIX=/home/iris1/swarm_ws/src/orin/install/swarm_msgs
+[0.236s] -- The C compiler identification is GNU 11.4.0
+[0.405s] -- The CXX compiler identification is GNU 11.4.0
+[0.428s] -- Detecting C compiler ABI info
+[0.573s] -- Detecting C compiler ABI info - done
+[0.597s] -- Check for working C compiler: /usr/bin/cc - skipped
+[0.599s] -- Detecting C compile features
+[0.601s] -- Detecting C compile features - done
+[0.613s] -- Detecting CXX compiler ABI info
+[0.777s] -- Detecting CXX compiler ABI info - done
+[0.802s] -- Check for working CXX compiler: /usr/bin/c++ - skipped
+[0.803s] -- Detecting CXX compile features
+[0.804s] -- Detecting CXX compile features - done
+[0.818s] -- Found ament_cmake: 1.3.13 (/opt/ros/humble/share/ament_cmake/cmake)
+[1.154s] -- Found Python3: /usr/bin/python3 (found version "3.10.12") found components: Interpreter 
+[1.386s] -- Found rosidl_default_generators: 1.2.0 (/opt/ros/humble/share/rosidl_default_generators/cmake)
+[1.395s] -- Using all available rosidl_typesupport_c: rosidl_typesupport_fastrtps_c;rosidl_typesupport_introspection_c
+[1.411s] -- Found rosidl_adapter: 3.1.8 (/opt/ros/humble/share/rosidl_adapter/cmake)
+[1.511s] -- Using all available rosidl_typesupport_cpp: rosidl_typesupport_fastrtps_cpp;rosidl_typesupport_introspection_cpp
+[1.592s] -- Found builtin_interfaces: 1.2.2 (/opt/ros/humble/share/builtin_interfaces/cmake)
+[2.230s] -- Found ament_cmake_ros: 0.10.0 (/opt/ros/humble/share/ament_cmake_ros/cmake)
+[2.674s] -- Using all available rosidl_typesupport_c: rosidl_typesupport_fastrtps_c;rosidl_typesupport_introspection_c
+[3.249s] -- Using all available rosidl_typesupport_cpp: rosidl_typesupport_fastrtps_cpp;rosidl_typesupport_introspection_cpp
+[3.304s] -- Found PythonInterp: /usr/bin/python3 (found suitable version "3.10.12", minimum required is "3.6") 
+[3.310s] -- Found python_cmake_module: 0.10.0 (/opt/ros/humble/share/python_cmake_module/cmake)
+[3.378s] -- Found PythonLibs: /usr/lib/aarch64-linux-gnu/libpython3.10.so (found suitable version "3.10.12", minimum required is "3.5") 
+[3.378s] -- Using PYTHON_EXECUTABLE: /usr/bin/python3
+[3.379s] -- Using PYTHON_INCLUDE_DIRS: /usr/include/python3.10
+[3.379s] -- Using PYTHON_LIBRARIES: /usr/lib/aarch64-linux-gnu/libpython3.10.so
+[3.428s] -- Found PythonExtra: .so  
+[3.542s] -- Configuring done
+[3.620s] -- Generating done
+[3.643s] -- Build files have been written to: /home/iris1/swarm_ws/src/orin/build/swarm_msgs
+[3.659s] Invoked command in '/home/iris1/swarm_ws/src/orin/build/swarm_msgs' returned '0': CMAKE_PREFIX_PATH=${CMAKE_PREFIX_PATH}:/home/iris1/swarm_ws/install/leader_pkg:/home/iris1/swarm_ws/install/follower_pkg:/opt/ros/humble /usr/bin/cmake /home/iris1/swarm_ws/src/orin/swarm_msgs -DCMAKE_INSTALL_PREFIX=/home/iris1/swarm_ws/src/orin/install/swarm_msgs
+[3.664s] Invoking command in '/home/iris1/swarm_ws/src/orin/build/swarm_msgs': CMAKE_PREFIX_PATH=${CMAKE_PREFIX_PATH}:/home/iris1/swarm_ws/install/leader_pkg:/home/iris1/swarm_ws/install/follower_pkg:/opt/ros/humble /usr/bin/cmake --build /home/iris1/swarm_ws/src/orin/build/swarm_msgs -- -j6 -l6
+[3.742s] [  2%] [34m[1mGenerating C code for ROS interfaces[0m
+[3.764s] [  4%] [34m[1mGenerating C++ code for ROS interfaces[0m
+[3.781s] [  4%] Built target ament_cmake_python_copy_swarm_msgs
+[4.329s] running egg_info
+[4.330s] creating swarm_msgs.egg-info
+[4.331s] writing swarm_msgs.egg-info/PKG-INFO
+[4.331s] writing dependency_links to swarm_msgs.egg-info/dependency_links.txt
+[4.331s] writing top-level names to swarm_msgs.egg-info/top_level.txt
+[4.332s] writing manifest file 'swarm_msgs.egg-info/SOURCES.txt'
+[4.337s] reading manifest file 'swarm_msgs.egg-info/SOURCES.txt'
+[4.338s] writing manifest file 'swarm_msgs.egg-info/SOURCES.txt'
+[4.409s] [  4%] Built target ament_cmake_python_build_swarm_msgs_egg
+[5.511s] [  4%] Built target swarm_msgs__cpp
+[5.531s] [  8%] [34m[1mGenerating C++ type support dispatch for ROS interfaces[0m
+[5.532s] [  8%] [34m[1mGenerating C++ introspection for ROS interfaces[0m
+[5.532s] [ 10%] [34m[1mGenerating C++ type support for eProsima Fast-RTPS[0m
+[5.538s] [ 14%] [32mBuilding C object CMakeFiles/swarm_msgs__rosidl_generator_c.dir/rosidl_generator_c/swarm_msgs/msg/detail/peer_state__functions.c.o[0m
+[5.538s] [ 14%] [32mBuilding C object CMakeFiles/swarm_msgs__rosidl_generator_c.dir/rosidl_generator_c/swarm_msgs/msg/detail/swarm_command__functions.c.o[0m
+[5.539s] [ 17%] [32mBuilding C object CMakeFiles/swarm_msgs__rosidl_generator_c.dir/rosidl_generator_c/swarm_msgs/msg/detail/peer_states__functions.c.o[0m
+[5.679s] [ 19%] [32m[1mLinking C shared library libswarm_msgs__rosidl_generator_c.so[0m
+[5.755s] [ 19%] Built target swarm_msgs__rosidl_generator_c
+[5.775s] [ 25%] [34m[1mGenerating C type support dispatch for ROS interfaces[0m
+[5.776s] [ 25%] [34m[1mGenerating C introspection for ROS interfaces[0m
+[5.776s] [ 25%] [34m[1mGenerating C type support for eProsima Fast-RTPS[0m
+[7.122s] [ 27%] [32mBuilding CXX object CMakeFiles/swarm_msgs__rosidl_typesupport_cpp.dir/rosidl_typesupport_cpp/swarm_msgs/msg/peer_state__type_support.cpp.o[0m
+[7.196s] [ 29%] [32mBuilding CXX object CMakeFiles/swarm_msgs__rosidl_typesupport_introspection_cpp.dir/rosidl_typesupport_introspection_cpp/swarm_msgs/msg/detail/peer_state__type_support.cpp.o[0m
+[7.281s] [ 31%] [32mBuilding CXX object CMakeFiles/swarm_msgs__rosidl_typesupport_fastrtps_cpp.dir/rosidl_typesupport_fastrtps_cpp/swarm_msgs/msg/detail/dds_fastrtps/peer_state__type_support.cpp.o[0m
+[7.365s] [ 34%] [32mBuilding CXX object CMakeFiles/swarm_msgs__rosidl_typesupport_c.dir/rosidl_typesupport_c/swarm_msgs/msg/peer_state__type_support.cpp.o[0m
+[7.449s] [ 36%] [32mBuilding CXX object CMakeFiles/swarm_msgs__rosidl_typesupport_c.dir/rosidl_typesupport_c/swarm_msgs/msg/peer_states__type_support.cpp.o[0m
+[7.503s] [ 38%] [32mBuilding C object CMakeFiles/swarm_msgs__rosidl_typesupport_introspection_c.dir/rosidl_typesupport_introspection_c/swarm_msgs/msg/detail/peer_state__type_support.c.o[0m
+[7.516s] [ 40%] [32mBuilding CXX object CMakeFiles/swarm_msgs__rosidl_typesupport_c.dir/rosidl_typesupport_c/swarm_msgs/msg/swarm_command__type_support.cpp.o[0m
+[7.583s] [ 42%] [32m[1mLinking CXX shared library libswarm_msgs__rosidl_typesupport_c.so[0m
+[7.588s] [ 44%] [32mBuilding C object CMakeFiles/swarm_msgs__rosidl_typesupport_introspection_c.dir/rosidl_typesupport_introspection_c/swarm_msgs/msg/detail/peer_states__type_support.c.o[0m
+[7.593s] [ 46%] [32mBuilding CXX object CMakeFiles/swarm_msgs__rosidl_typesupport_fastrtps_c.dir/rosidl_typesupport_fastrtps_c/swarm_msgs/msg/detail/peer_state__type_support_c.cpp.o[0m
+[7.675s] [ 46%] Built target swarm_msgs__rosidl_typesupport_c
+[7.685s] [ 48%] [32mBuilding C object CMakeFiles/swarm_msgs__rosidl_typesupport_introspection_c.dir/rosidl_typesupport_introspection_c/swarm_msgs/msg/detail/swarm_command__type_support.c.o[0m
+[7.695s] [ 51%] [32mBuilding CXX object CMakeFiles/swarm_msgs__rosidl_typesupport_fastrtps_c.dir/rosidl_typesupport_fastrtps_c/swarm_msgs/msg/detail/peer_states__type_support_c.cpp.o[0m
+[7.759s] [ 53%] [32m[1mLinking C shared library libswarm_msgs__rosidl_typesupport_introspection_c.so[0m
+[7.825s] [ 55%] [32mBuilding CXX object CMakeFiles/swarm_msgs__rosidl_typesupport_cpp.dir/rosidl_typesupport_cpp/swarm_msgs/msg/peer_states__type_support.cpp.o[0m
+[7.825s] [ 55%] Built target swarm_msgs__rosidl_typesupport_introspection_c
+[7.846s] [ 57%] [32mBuilding CXX object CMakeFiles/swarm_msgs__rosidl_typesupport_cpp.dir/rosidl_typesupport_cpp/swarm_msgs/msg/swarm_command__type_support.cpp.o[0m
+[8.181s] [ 59%] [32mBuilding CXX object CMakeFiles/swarm_msgs__rosidl_typesupport_introspection_cpp.dir/rosidl_typesupport_introspection_cpp/swarm_msgs/msg/detail/peer_states__type_support.cpp.o[0m
+[8.264s] [ 61%] [32mBuilding CXX object CMakeFiles/swarm_msgs__rosidl_typesupport_fastrtps_cpp.dir/rosidl_typesupport_fastrtps_cpp/swarm_msgs/msg/detail/dds_fastrtps/peer_states__type_support.cpp.o[0m
+[8.450s] [ 63%] [32mBuilding CXX object CMakeFiles/swarm_msgs__rosidl_typesupport_fastrtps_c.dir/rosidl_typesupport_fastrtps_c/swarm_msgs/msg/detail/swarm_command__type_support_c.cpp.o[0m
+[8.464s] [ 65%] [32mBuilding CXX object CMakeFiles/swarm_msgs__rosidl_typesupport_fastrtps_cpp.dir/rosidl_typesupport_fastrtps_cpp/swarm_msgs/msg/detail/dds_fastrtps/swarm_command__type_support.cpp.o[0m
+[8.515s] [ 68%] [32m[1mLinking CXX shared library libswarm_msgs__rosidl_typesupport_cpp.so[0m
+[8.568s] [ 70%] [32mBuilding CXX object CMakeFiles/swarm_msgs__rosidl_typesupport_introspection_cpp.dir/rosidl_typesupport_introspection_cpp/swarm_msgs/msg/detail/swarm_command__type_support.cpp.o[0m
+[8.601s] [ 70%] Built target swarm_msgs__rosidl_typesupport_cpp
+[9.271s] [ 72%] [32m[1mLinking CXX shared library libswarm_msgs__rosidl_typesupport_fastrtps_c.so[0m
+[9.394s] [ 74%] [32m[1mLinking CXX shared library libswarm_msgs__rosidl_typesupport_fastrtps_cpp.so[0m
+[9.438s] [ 74%] Built target swarm_msgs__rosidl_typesupport_fastrtps_c
+[9.482s] [ 76%] [32m[1mLinking CXX shared library libswarm_msgs__rosidl_typesupport_introspection_cpp.so[0m
+[9.544s] [ 76%] Built target swarm_msgs__rosidl_typesupport_fastrtps_cpp
+[9.630s] [ 76%] Built target swarm_msgs__rosidl_typesupport_introspection_cpp
+[9.672s] [ 76%] Built target swarm_msgs
+[9.714s] [ 78%] [34m[1mGenerating Python code for ROS interfaces[0m
+[12.579s] [ 78%] Built target swarm_msgs__py
+[12.620s] [ 85%] [32mBuilding C object CMakeFiles/swarm_msgs__rosidl_generator_py.dir/rosidl_generator_py/swarm_msgs/msg/_peer_states_s.c.o[0m
+[12.620s] [ 85%] [32mBuilding C object CMakeFiles/swarm_msgs__rosidl_generator_py.dir/rosidl_generator_py/swarm_msgs/msg/_peer_state_s.c.o[0m
+[12.621s] [ 85%] [32mBuilding C object CMakeFiles/swarm_msgs__rosidl_generator_py.dir/rosidl_generator_py/swarm_msgs/msg/_swarm_command_s.c.o[0m
+[12.907s] [ 87%] [32m[1mLinking C shared library rosidl_generator_py/swarm_msgs/libswarm_msgs__rosidl_generator_py.so[0m
+[12.990s] [ 87%] Built target swarm_msgs__rosidl_generator_py
+[13.031s] [ 91%] [32mBuilding C object CMakeFiles/swarm_msgs__rosidl_typesupport_c__pyext.dir/rosidl_generator_py/swarm_msgs/_swarm_msgs_s.ep.rosidl_typesupport_c.c.o[0m
+[13.031s] [ 91%] [32mBuilding C object CMakeFiles/swarm_msgs__rosidl_typesupport_introspection_c__pyext.dir/rosidl_generator_py/swarm_msgs/_swarm_msgs_s.ep.rosidl_typesupport_introspection_c.c.o[0m
+[13.038s] [ 93%] [32mBuilding C object CMakeFiles/swarm_msgs__rosidl_typesupport_fastrtps_c__pyext.dir/rosidl_generator_py/swarm_msgs/_swarm_msgs_s.ep.rosidl_typesupport_fastrtps_c.c.o[0m
+[13.255s] [ 97%] [32m[1mLinking C shared library rosidl_generator_py/swarm_msgs/swarm_msgs_s__rosidl_typesupport_c.cpython-310-aarch64-linux-gnu.so[0m
+[13.255s] [ 97%] [32m[1mLinking C shared library rosidl_generator_py/swarm_msgs/swarm_msgs_s__rosidl_typesupport_introspection_c.cpython-310-aarch64-linux-gnu.so[0m
+[13.266s] [100%] [32m[1mLinking C shared library rosidl_generator_py/swarm_msgs/swarm_msgs_s__rosidl_typesupport_fastrtps_c.cpython-310-aarch64-linux-gnu.so[0m
+[13.330s] [100%] Built target swarm_msgs__rosidl_typesupport_c__pyext
+[13.330s] [100%] Built target swarm_msgs__rosidl_typesupport_introspection_c__pyext
+[13.346s] [100%] Built target swarm_msgs__rosidl_typesupport_fastrtps_c__pyext
+[13.372s] Invoked command in '/home/iris1/swarm_ws/src/orin/build/swarm_msgs' returned '0': CMAKE_PREFIX_PATH=${CMAKE_PREFIX_PATH}:/home/iris1/swarm_ws/install/leader_pkg:/home/iris1/swarm_ws/install/follower_pkg:/opt/ros/humble /usr/bin/cmake --build /home/iris1/swarm_ws/src/orin/build/swarm_msgs -- -j6 -l6
+[13.395s] Invoking command in '/home/iris1/swarm_ws/src/orin/build/swarm_msgs': CMAKE_PREFIX_PATH=${CMAKE_PREFIX_PATH}:/home/iris1/swarm_ws/install/leader_pkg:/home/iris1/swarm_ws/install/follower_pkg:/opt/ros/humble /usr/bin/cmake --install /home/iris1/swarm_ws/src/orin/build/swarm_msgs
+[13.412s] -- Install configuration: ""
+[13.412s] -- Installing: /home/iris1/swarm_ws/src/orin/install/swarm_msgs/share/ament_index/resource_index/rosidl_interfaces/swarm_msgs
+[13.413s] -- Installing: /home/iris1/swarm_ws/src/orin/install/swarm_msgs/include/swarm_msgs/swarm_msgs
+[13.413s] -- Installing: /home/iris1/swarm_ws/src/orin/install/swarm_msgs/include/swarm_msgs/swarm_msgs/msg
+[13.414s] -- Installing: /home/iris1/swarm_ws/src/orin/install/swarm_msgs/include/swarm_msgs/swarm_msgs/msg/swarm_command.h
+[13.414s] -- Installing: /home/iris1/swarm_ws/src/orin/install/swarm_msgs/include/swarm_msgs/swarm_msgs/msg/peer_state.h
+[13.414s] -- Installing: /home/iris1/swarm_ws/src/orin/install/swarm_msgs/include/swarm_msgs/swarm_msgs/msg/detail
+[13.415s] -- Installing: /home/iris1/swarm_ws/src/orin/install/swarm_msgs/include/swarm_msgs/swarm_msgs/msg/detail/swarm_command__functions.c
+[13.415s] -- Installing: /home/iris1/swarm_ws/src/orin/install/swarm_msgs/include/swarm_msgs/swarm_msgs/msg/detail/peer_states__functions.h
+[13.415s] -- Installing: /home/iris1/swarm_ws/src/orin/install/swarm_msgs/include/swarm_msgs/swarm_msgs/msg/detail/peer_states__type_support.h
+[13.416s] -- Installing: /home/iris1/swarm_ws/src/orin/install/swarm_msgs/include/swarm_msgs/swarm_msgs/msg/detail/peer_states__functions.c
+[13.416s] -- Installing: /home/iris1/swarm_ws/src/orin/install/swarm_msgs/include/swarm_msgs/swarm_msgs/msg/detail/peer_state__struct.h
+[13.416s] -- Installing: /home/iris1/swarm_ws/src/orin/install/swarm_msgs/include/swarm_msgs/swarm_msgs/msg/detail/peer_state__functions.c
+[13.417s] -- Installing: /home/iris1/swarm_ws/src/orin/install/swarm_msgs/include/swarm_msgs/swarm_msgs/msg/detail/peer_state__functions.h
+[13.417s] -- Installing: /home/iris1/swarm_ws/src/orin/install/swarm_msgs/include/swarm_msgs/swarm_msgs/msg/detail/swarm_command__functions.h
+[13.417s] -- Installing: /home/iris1/swarm_ws/src/orin/install/swarm_msgs/include/swarm_msgs/swarm_msgs/msg/detail/peer_states__struct.h
+[13.417s] -- Installing: /home/iris1/swarm_ws/src/orin/install/swarm_msgs/include/swarm_msgs/swarm_msgs/msg/detail/peer_state__type_support.h
+[13.418s] -- Installing: /home/iris1/swarm_ws/src/orin/install/swarm_msgs/include/swarm_msgs/swarm_msgs/msg/detail/swarm_command__struct.h
+[13.418s] -- Installing: /home/iris1/swarm_ws/src/orin/install/swarm_msgs/include/swarm_msgs/swarm_msgs/msg/detail/swarm_command__type_support.h
+[13.418s] -- Installing: /home/iris1/swarm_ws/src/orin/install/swarm_msgs/include/swarm_msgs/swarm_msgs/msg/peer_states.h
+[13.418s] -- Installing: /home/iris1/swarm_ws/src/orin/install/swarm_msgs/include/swarm_msgs/swarm_msgs/msg/rosidl_generator_c__visibility_control.h
+[13.419s] -- Installing: /home/iris1/swarm_ws/src/orin/install/swarm_msgs/share/swarm_msgs/environment/library_path.sh
+[13.419s] -- Installing: /home/iris1/swarm_ws/src/orin/install/swarm_msgs/share/swarm_msgs/environment/library_path.dsv
+[13.419s] -- Installing: /home/iris1/swarm_ws/src/orin/install/swarm_msgs/lib/libswarm_msgs__rosidl_generator_c.so
+[13.420s] -- Set runtime path of "/home/iris1/swarm_ws/src/orin/install/swarm_msgs/lib/libswarm_msgs__rosidl_generator_c.so" to ""
+[13.420s] -- Up-to-date: /home/iris1/swarm_ws/src/orin/install/swarm_msgs/include/swarm_msgs/swarm_msgs
+[13.420s] -- Up-to-date: /home/iris1/swarm_ws/src/orin/install/swarm_msgs/include/swarm_msgs/swarm_msgs/msg
+[13.420s] -- Up-to-date: /home/iris1/swarm_ws/src/orin/install/swarm_msgs/include/swarm_msgs/swarm_msgs/msg/detail
+[13.421s] -- Installing: /home/iris1/swarm_ws/src/orin/install/swarm_msgs/include/swarm_msgs/swarm_msgs/msg/detail/swarm_command__rosidl_typesupport_fastrtps_c.h
+[13.421s] -- Installing: /home/iris1/swarm_ws/src/orin/install/swarm_msgs/include/swarm_msgs/swarm_msgs/msg/detail/peer_states__rosidl_typesupport_fastrtps_c.h
+[13.421s] -- Installing: /home/iris1/swarm_ws/src/orin/install/swarm_msgs/include/swarm_msgs/swarm_msgs/msg/detail/peer_state__rosidl_typesupport_fastrtps_c.h
+[13.422s] -- Installing: /home/iris1/swarm_ws/src/orin/install/swarm_msgs/include/swarm_msgs/swarm_msgs/msg/rosidl_typesupport_fastrtps_c__visibility_control.h
+[13.422s] -- Installing: /home/iris1/swarm_ws/src/orin/install/swarm_msgs/lib/libswarm_msgs__rosidl_typesupport_fastrtps_c.so
+[13.422s] -- Set runtime path of "/home/iris1/swarm_ws/src/orin/install/swarm_msgs/lib/libswarm_msgs__rosidl_typesupport_fastrtps_c.so" to ""
+[13.423s] -- Up-to-date: /home/iris1/swarm_ws/src/orin/install/swarm_msgs/include/swarm_msgs/swarm_msgs
+[13.423s] -- Up-to-date: /home/iris1/swarm_ws/src/orin/install/swarm_msgs/include/swarm_msgs/swarm_msgs/msg
+[13.423s] -- Installing: /home/iris1/swarm_ws/src/orin/install/swarm_msgs/include/swarm_msgs/swarm_msgs/msg/rosidl_typesupport_introspection_c__visibility_control.h
+[13.423s] -- Up-to-date: /home/iris1/swarm_ws/src/orin/install/swarm_msgs/include/swarm_msgs/swarm_msgs/msg/detail
+[13.424s] -- Installing: /home/iris1/swarm_ws/src/orin/install/swarm_msgs/include/swarm_msgs/swarm_msgs/msg/detail/peer_states__rosidl_typesupport_introspection_c.h
+[13.424s] -- Installing: /home/iris1/swarm_ws/src/orin/install/swarm_msgs/include/swarm_msgs/swarm_msgs/msg/detail/peer_state__rosidl_typesupport_introspection_c.h
+[13.424s] -- Installing: /home/iris1/swarm_ws/src/orin/install/swarm_msgs/include/swarm_msgs/swarm_msgs/msg/detail/peer_states__type_support.c
+[13.424s] -- Installing: /home/iris1/swarm_ws/src/orin/install/swarm_msgs/include/swarm_msgs/swarm_msgs/msg/detail/swarm_command__rosidl_typesupport_introspection_c.h
+[13.425s] -- Installing: /home/iris1/swarm_ws/src/orin/install/swarm_msgs/include/swarm_msgs/swarm_msgs/msg/detail/swarm_command__type_support.c
+[13.425s] -- Installing: /home/iris1/swarm_ws/src/orin/install/swarm_msgs/include/swarm_msgs/swarm_msgs/msg/detail/peer_state__type_support.c
+[13.425s] -- Installing: /home/iris1/swarm_ws/src/orin/install/swarm_msgs/lib/libswarm_msgs__rosidl_typesupport_introspection_c.so
+[13.426s] -- Set runtime path of "/home/iris1/swarm_ws/src/orin/install/swarm_msgs/lib/libswarm_msgs__rosidl_typesupport_introspection_c.so" to ""
+[13.426s] -- Installing: /home/iris1/swarm_ws/src/orin/install/swarm_msgs/lib/libswarm_msgs__rosidl_typesupport_c.so
+[13.426s] -- Set runtime path of "/home/iris1/swarm_ws/src/orin/install/swarm_msgs/lib/libswarm_msgs__rosidl_typesupport_c.so" to ""
+[13.426s] -- Up-to-date: /home/iris1/swarm_ws/src/orin/install/swarm_msgs/include/swarm_msgs/swarm_msgs
+[13.427s] -- Up-to-date: /home/iris1/swarm_ws/src/orin/install/swarm_msgs/include/swarm_msgs/swarm_msgs/msg
+[13.427s] -- Installing: /home/iris1/swarm_ws/src/orin/install/swarm_msgs/include/swarm_msgs/swarm_msgs/msg/peer_state.hpp
+[13.427s] -- Up-to-date: /home/iris1/swarm_ws/src/orin/install/swarm_msgs/include/swarm_msgs/swarm_msgs/msg/detail
+[13.428s] -- Installing: /home/iris1/swarm_ws/src/orin/install/swarm_msgs/include/swarm_msgs/swarm_msgs/msg/detail/peer_states__type_support.hpp
+[13.428s] -- Installing: /home/iris1/swarm_ws/src/orin/install/swarm_msgs/include/swarm_msgs/swarm_msgs/msg/detail/peer_states__traits.hpp
+[13.428s] -- Installing: /home/iris1/swarm_ws/src/orin/install/swarm_msgs/include/swarm_msgs/swarm_msgs/msg/detail/peer_states__struct.hpp
+[13.429s] -- Installing: /home/iris1/swarm_ws/src/orin/install/swarm_msgs/include/swarm_msgs/swarm_msgs/msg/detail/peer_state__builder.hpp
+[13.429s] -- Installing: /home/iris1/swarm_ws/src/orin/install/swarm_msgs/include/swarm_msgs/swarm_msgs/msg/detail/peer_state__type_support.hpp
+[13.429s] -- Installing: /home/iris1/swarm_ws/src/orin/install/swarm_msgs/include/swarm_msgs/swarm_msgs/msg/detail/peer_states__builder.hpp
+[13.430s] -- Installing: /home/iris1/swarm_ws/src/orin/install/swarm_msgs/include/swarm_msgs/swarm_msgs/msg/detail/swarm_command__type_support.hpp
+[13.430s] -- Installing: /home/iris1/swarm_ws/src/orin/install/swarm_msgs/include/swarm_msgs/swarm_msgs/msg/detail/swarm_command__builder.hpp
+[13.430s] -- Installing: /home/iris1/swarm_ws/src/orin/install/swarm_msgs/include/swarm_msgs/swarm_msgs/msg/detail/peer_state__traits.hpp
+[13.430s] -- Installing: /home/iris1/swarm_ws/src/orin/install/swarm_msgs/include/swarm_msgs/swarm_msgs/msg/detail/swarm_command__traits.hpp
+[13.431s] -- Installing: /home/iris1/swarm_ws/src/orin/install/swarm_msgs/include/swarm_msgs/swarm_msgs/msg/detail/swarm_command__struct.hpp
+[13.431s] -- Installing: /home/iris1/swarm_ws/src/orin/install/swarm_msgs/include/swarm_msgs/swarm_msgs/msg/detail/peer_state__struct.hpp
+[13.431s] -- Installing: /home/iris1/swarm_ws/src/orin/install/swarm_msgs/include/swarm_msgs/swarm_msgs/msg/peer_states.hpp
+[13.432s] -- Installing: /home/iris1/swarm_ws/src/orin/install/swarm_msgs/include/swarm_msgs/swarm_msgs/msg/rosidl_generator_cpp__visibility_control.hpp
+[13.432s] -- Installing: /home/iris1/swarm_ws/src/orin/install/swarm_msgs/include/swarm_msgs/swarm_msgs/msg/swarm_command.hpp
+[13.432s] -- Up-to-date: /home/iris1/swarm_ws/src/orin/install/swarm_msgs/include/swarm_msgs/swarm_msgs
+[13.432s] -- Up-to-date: /home/iris1/swarm_ws/src/orin/install/swarm_msgs/include/swarm_msgs/swarm_msgs/msg
+[13.433s] -- Installing: /home/iris1/swarm_ws/src/orin/install/swarm_msgs/include/swarm_msgs/swarm_msgs/msg/rosidl_typesupport_fastrtps_cpp__visibility_control.h
+[13.433s] -- Up-to-date: /home/iris1/swarm_ws/src/orin/install/swarm_msgs/include/swarm_msgs/swarm_msgs/msg/detail
+[13.433s] -- Installing: /home/iris1/swarm_ws/src/orin/install/swarm_msgs/include/swarm_msgs/swarm_msgs/msg/detail/dds_fastrtps
+[13.434s] -- Installing: /home/iris1/swarm_ws/src/orin/install/swarm_msgs/include/swarm_msgs/swarm_msgs/msg/detail/swarm_command__rosidl_typesupport_fastrtps_cpp.hpp
+[13.434s] -- Installing: /home/iris1/swarm_ws/src/orin/install/swarm_msgs/include/swarm_msgs/swarm_msgs/msg/detail/peer_state__rosidl_typesupport_fastrtps_cpp.hpp
+[13.434s] -- Installing: /home/iris1/swarm_ws/src/orin/install/swarm_msgs/include/swarm_msgs/swarm_msgs/msg/detail/peer_states__rosidl_typesupport_fastrtps_cpp.hpp
+[13.434s] -- Installing: /home/iris1/swarm_ws/src/orin/install/swarm_msgs/lib/libswarm_msgs__rosidl_typesupport_fastrtps_cpp.so
+[13.435s] -- Set runtime path of "/home/iris1/swarm_ws/src/orin/install/swarm_msgs/lib/libswarm_msgs__rosidl_typesupport_fastrtps_cpp.so" to ""
+[13.435s] -- Up-to-date: /home/iris1/swarm_ws/src/orin/install/swarm_msgs/include/swarm_msgs/swarm_msgs
+[13.435s] -- Up-to-date: /home/iris1/swarm_ws/src/orin/install/swarm_msgs/include/swarm_msgs/swarm_msgs/msg
+[13.435s] -- Up-to-date: /home/iris1/swarm_ws/src/orin/install/swarm_msgs/include/swarm_msgs/swarm_msgs/msg/detail
+[13.436s] -- Installing: /home/iris1/swarm_ws/src/orin/install/swarm_msgs/include/swarm_msgs/swarm_msgs/msg/detail/peer_state__rosidl_typesupport_introspection_cpp.hpp
+[13.436s] -- Installing: /home/iris1/swarm_ws/src/orin/install/swarm_msgs/include/swarm_msgs/swarm_msgs/msg/detail/peer_states__type_support.cpp
+[13.436s] -- Installing: /home/iris1/swarm_ws/src/orin/install/swarm_msgs/include/swarm_msgs/swarm_msgs/msg/detail/peer_states__rosidl_typesupport_introspection_cpp.hpp
+[13.437s] -- Installing: /home/iris1/swarm_ws/src/orin/install/swarm_msgs/include/swarm_msgs/swarm_msgs/msg/detail/swarm_command__rosidl_typesupport_introspection_cpp.hpp
+[13.437s] -- Installing: /home/iris1/swarm_ws/src/orin/install/swarm_msgs/include/swarm_msgs/swarm_msgs/msg/detail/swarm_command__type_support.cpp
+[13.437s] -- Installing: /home/iris1/swarm_ws/src/orin/install/swarm_msgs/include/swarm_msgs/swarm_msgs/msg/detail/peer_state__type_support.cpp
+[13.437s] -- Installing: /home/iris1/swarm_ws/src/orin/install/swarm_msgs/lib/libswarm_msgs__rosidl_typesupport_introspection_cpp.so
+[13.438s] -- Set runtime path of "/home/iris1/swarm_ws/src/orin/install/swarm_msgs/lib/libswarm_msgs__rosidl_typesupport_introspection_cpp.so" to ""
+[13.438s] -- Installing: /home/iris1/swarm_ws/src/orin/install/swarm_msgs/lib/libswarm_msgs__rosidl_typesupport_cpp.so
+[13.438s] -- Set runtime path of "/home/iris1/swarm_ws/src/orin/install/swarm_msgs/lib/libswarm_msgs__rosidl_typesupport_cpp.so" to ""
+[13.438s] -- Installing: /home/iris1/swarm_ws/src/orin/install/swarm_msgs/share/swarm_msgs/environment/pythonpath.sh
+[13.439s] -- Installing: /home/iris1/swarm_ws/src/orin/install/swarm_msgs/share/swarm_msgs/environment/pythonpath.dsv
+[13.439s] -- Installing: /home/iris1/swarm_ws/src/orin/install/swarm_msgs/local/lib/python3.10/dist-packages/swarm_msgs-1.0.0-py3.10.egg-info
+[13.439s] -- Installing: /home/iris1/swarm_ws/src/orin/install/swarm_msgs/local/lib/python3.10/dist-packages/swarm_msgs-1.0.0-py3.10.egg-info/SOURCES.txt
+[13.440s] -- Installing: /home/iris1/swarm_ws/src/orin/install/swarm_msgs/local/lib/python3.10/dist-packages/swarm_msgs-1.0.0-py3.10.egg-info/top_level.txt
+[13.440s] -- Installing: /home/iris1/swarm_ws/src/orin/install/swarm_msgs/local/lib/python3.10/dist-packages/swarm_msgs-1.0.0-py3.10.egg-info/dependency_links.txt
+[13.440s] -- Installing: /home/iris1/swarm_ws/src/orin/install/swarm_msgs/local/lib/python3.10/dist-packages/swarm_msgs-1.0.0-py3.10.egg-info/PKG-INFO
+[13.441s] -- Installing: /home/iris1/swarm_ws/src/orin/install/swarm_msgs/local/lib/python3.10/dist-packages/swarm_msgs
+[13.441s] -- Installing: /home/iris1/swarm_ws/src/orin/install/swarm_msgs/local/lib/python3.10/dist-packages/swarm_msgs/swarm_msgs_s__rosidl_typesupport_c.cpython-310-aarch64-linux-gnu.so
+[13.441s] -- Installing: /home/iris1/swarm_ws/src/orin/install/swarm_msgs/local/lib/python3.10/dist-packages/swarm_msgs/swarm_msgs_s__rosidl_typesupport_fastrtps_c.cpython-310-aarch64-linux-gnu.so
+[13.441s] -- Installing: /home/iris1/swarm_ws/src/orin/install/swarm_msgs/local/lib/python3.10/dist-packages/swarm_msgs/libswarm_msgs__rosidl_generator_py.so
+[13.442s] -- Installing: /home/iris1/swarm_ws/src/orin/install/swarm_msgs/local/lib/python3.10/dist-packages/swarm_msgs/msg
+[13.442s] -- Installing: /home/iris1/swarm_ws/src/orin/install/swarm_msgs/local/lib/python3.10/dist-packages/swarm_msgs/msg/_swarm_command_s.c
+[13.442s] -- Installing: /home/iris1/swarm_ws/src/orin/install/swarm_msgs/local/lib/python3.10/dist-packages/swarm_msgs/msg/_peer_states.py
+[13.442s] -- Installing: /home/iris1/swarm_ws/src/orin/install/swarm_msgs/local/lib/python3.10/dist-packages/swarm_msgs/msg/_peer_state_s.c
+[13.442s] -- Installing: /home/iris1/swarm_ws/src/orin/install/swarm_msgs/local/lib/python3.10/dist-packages/swarm_msgs/msg/_swarm_command.py
+[13.443s] -- Installing: /home/iris1/swarm_ws/src/orin/install/swarm_msgs/local/lib/python3.10/dist-packages/swarm_msgs/msg/_peer_states_s.c
+[13.443s] -- Installing: /home/iris1/swarm_ws/src/orin/install/swarm_msgs/local/lib/python3.10/dist-packages/swarm_msgs/msg/_peer_state.py
+[13.443s] -- Installing: /home/iris1/swarm_ws/src/orin/install/swarm_msgs/local/lib/python3.10/dist-packages/swarm_msgs/msg/__init__.py
+[13.443s] -- Installing: /home/iris1/swarm_ws/src/orin/install/swarm_msgs/local/lib/python3.10/dist-packages/swarm_msgs/_swarm_msgs_s.ep.rosidl_typesupport_c.c
+[13.443s] -- Installing: /home/iris1/swarm_ws/src/orin/install/swarm_msgs/local/lib/python3.10/dist-packages/swarm_msgs/_swarm_msgs_s.ep.rosidl_typesupport_fastrtps_c.c
+[13.444s] -- Installing: /home/iris1/swarm_ws/src/orin/install/swarm_msgs/local/lib/python3.10/dist-packages/swarm_msgs/__init__.py
+[13.444s] -- Installing: /home/iris1/swarm_ws/src/orin/install/swarm_msgs/local/lib/python3.10/dist-packages/swarm_msgs/_swarm_msgs_s.ep.rosidl_typesupport_introspection_c.c
+[13.444s] -- Installing: /home/iris1/swarm_ws/src/orin/install/swarm_msgs/local/lib/python3.10/dist-packages/swarm_msgs/swarm_msgs_s__rosidl_typesupport_introspection_c.cpython-310-aarch64-linux-gnu.so
+[13.531s] Listing '/home/iris1/swarm_ws/src/orin/install/swarm_msgs/local/lib/python3.10/dist-packages/swarm_msgs'...
+[13.531s] Compiling '/home/iris1/swarm_ws/src/orin/install/swarm_msgs/local/lib/python3.10/dist-packages/swarm_msgs/__init__.py'...
+[13.532s] Listing '/home/iris1/swarm_ws/src/orin/install/swarm_msgs/local/lib/python3.10/dist-packages/swarm_msgs/msg'...
+[13.532s] Compiling '/home/iris1/swarm_ws/src/orin/install/swarm_msgs/local/lib/python3.10/dist-packages/swarm_msgs/msg/__init__.py'...
+[13.532s] Compiling '/home/iris1/swarm_ws/src/orin/install/swarm_msgs/local/lib/python3.10/dist-packages/swarm_msgs/msg/_peer_state.py'...
+[13.533s] Compiling '/home/iris1/swarm_ws/src/orin/install/swarm_msgs/local/lib/python3.10/dist-packages/swarm_msgs/msg/_peer_states.py'...
+[13.533s] Compiling '/home/iris1/swarm_ws/src/orin/install/swarm_msgs/local/lib/python3.10/dist-packages/swarm_msgs/msg/_swarm_command.py'...
+[13.544s] -- Installing: /home/iris1/swarm_ws/src/orin/install/swarm_msgs/local/lib/python3.10/dist-packages/swarm_msgs/swarm_msgs_s__rosidl_typesupport_fastrtps_c.cpython-310-aarch64-linux-gnu.so
+[13.544s] -- Set runtime path of "/home/iris1/swarm_ws/src/orin/install/swarm_msgs/local/lib/python3.10/dist-packages/swarm_msgs/swarm_msgs_s__rosidl_typesupport_fastrtps_c.cpython-310-aarch64-linux-gnu.so" to ""
+[13.545s] -- Installing: /home/iris1/swarm_ws/src/orin/install/swarm_msgs/local/lib/python3.10/dist-packages/swarm_msgs/swarm_msgs_s__rosidl_typesupport_introspection_c.cpython-310-aarch64-linux-gnu.so
+[13.545s] -- Set runtime path of "/home/iris1/swarm_ws/src/orin/install/swarm_msgs/local/lib/python3.10/dist-packages/swarm_msgs/swarm_msgs_s__rosidl_typesupport_introspection_c.cpython-310-aarch64-linux-gnu.so" to ""
+[13.546s] -- Installing: /home/iris1/swarm_ws/src/orin/install/swarm_msgs/local/lib/python3.10/dist-packages/swarm_msgs/swarm_msgs_s__rosidl_typesupport_c.cpython-310-aarch64-linux-gnu.so
+[13.547s] -- Set runtime path of "/home/iris1/swarm_ws/src/orin/install/swarm_msgs/local/lib/python3.10/dist-packages/swarm_msgs/swarm_msgs_s__rosidl_typesupport_c.cpython-310-aarch64-linux-gnu.so" to ""
+[13.547s] -- Installing: /home/iris1/swarm_ws/src/orin/install/swarm_msgs/lib/libswarm_msgs__rosidl_generator_py.so
+[13.547s] -- Set runtime path of "/home/iris1/swarm_ws/src/orin/install/swarm_msgs/lib/libswarm_msgs__rosidl_generator_py.so" to ""
+[13.548s] -- Installing: /home/iris1/swarm_ws/src/orin/install/swarm_msgs/share/swarm_msgs/msg/PeerState.idl
+[13.548s] -- Installing: /home/iris1/swarm_ws/src/orin/install/swarm_msgs/share/swarm_msgs/msg/PeerStates.idl
+[13.548s] -- Installing: /home/iris1/swarm_ws/src/orin/install/swarm_msgs/share/swarm_msgs/msg/SwarmCommand.idl
+[13.549s] -- Installing: /home/iris1/swarm_ws/src/orin/install/swarm_msgs/share/swarm_msgs/msg/PeerState.msg
+[13.549s] -- Installing: /home/iris1/swarm_ws/src/orin/install/swarm_msgs/share/swarm_msgs/msg/PeerStates.msg
+[13.549s] -- Installing: /home/iris1/swarm_ws/src/orin/install/swarm_msgs/share/swarm_msgs/msg/SwarmCommand.msg
+[13.550s] -- Installing: /home/iris1/swarm_ws/src/orin/install/swarm_msgs/share/ament_index/resource_index/package_run_dependencies/swarm_msgs
+[13.550s] -- Installing: /home/iris1/swarm_ws/src/orin/install/swarm_msgs/share/ament_index/resource_index/parent_prefix_path/swarm_msgs
+[13.550s] -- Installing: /home/iris1/swarm_ws/src/orin/install/swarm_msgs/share/swarm_msgs/environment/ament_prefix_path.sh
+[13.551s] -- Installing: /home/iris1/swarm_ws/src/orin/install/swarm_msgs/share/swarm_msgs/environment/ament_prefix_path.dsv
+[13.551s] -- Installing: /home/iris1/swarm_ws/src/orin/install/swarm_msgs/share/swarm_msgs/environment/path.sh
+[13.551s] -- Installing: /home/iris1/swarm_ws/src/orin/install/swarm_msgs/share/swarm_msgs/environment/path.dsv
+[13.552s] -- Installing: /home/iris1/swarm_ws/src/orin/install/swarm_msgs/share/swarm_msgs/local_setup.bash
+[13.552s] -- Installing: /home/iris1/swarm_ws/src/orin/install/swarm_msgs/share/swarm_msgs/local_setup.sh
+[13.552s] -- Installing: /home/iris1/swarm_ws/src/orin/install/swarm_msgs/share/swarm_msgs/local_setup.zsh
+[13.553s] -- Installing: /home/iris1/swarm_ws/src/orin/install/swarm_msgs/share/swarm_msgs/local_setup.dsv
+[13.553s] -- Installing: /home/iris1/swarm_ws/src/orin/install/swarm_msgs/share/swarm_msgs/package.dsv
+[13.553s] -- Installing: /home/iris1/swarm_ws/src/orin/install/swarm_msgs/share/ament_index/resource_index/packages/swarm_msgs
+[13.554s] -- Installing: /home/iris1/swarm_ws/src/orin/install/swarm_msgs/share/swarm_msgs/cmake/export_swarm_msgs__rosidl_generator_cExport.cmake
+[13.554s] -- Installing: /home/iris1/swarm_ws/src/orin/install/swarm_msgs/share/swarm_msgs/cmake/export_swarm_msgs__rosidl_generator_cExport-noconfig.cmake
+[13.554s] -- Installing: /home/iris1/swarm_ws/src/orin/install/swarm_msgs/share/swarm_msgs/cmake/export_swarm_msgs__rosidl_typesupport_fastrtps_cExport.cmake
+[13.555s] -- Installing: /home/iris1/swarm_ws/src/orin/install/swarm_msgs/share/swarm_msgs/cmake/export_swarm_msgs__rosidl_typesupport_fastrtps_cExport-noconfig.cmake
+[13.555s] -- Installing: /home/iris1/swarm_ws/src/orin/install/swarm_msgs/share/swarm_msgs/cmake/swarm_msgs__rosidl_typesupport_introspection_cExport.cmake
+[13.555s] -- Installing: /home/iris1/swarm_ws/src/orin/install/swarm_msgs/share/swarm_msgs/cmake/swarm_msgs__rosidl_typesupport_introspection_cExport-noconfig.cmake
+[13.556s] -- Installing: /home/iris1/swarm_ws/src/orin/install/swarm_msgs/share/swarm_msgs/cmake/swarm_msgs__rosidl_typesupport_cExport.cmake
+[13.556s] -- Installing: /home/iris1/swarm_ws/src/orin/install/swarm_msgs/share/swarm_msgs/cmake/swarm_msgs__rosidl_typesupport_cExport-noconfig.cmake
+[13.556s] -- Installing: /home/iris1/swarm_ws/src/orin/install/swarm_msgs/share/swarm_msgs/cmake/export_swarm_msgs__rosidl_generator_cppExport.cmake
+[13.557s] -- Installing: /home/iris1/swarm_ws/src/orin/install/swarm_msgs/share/swarm_msgs/cmake/export_swarm_msgs__rosidl_typesupport_fastrtps_cppExport.cmake
+[13.557s] -- Installing: /home/iris1/swarm_ws/src/orin/install/swarm_msgs/share/swarm_msgs/cmake/export_swarm_msgs__rosidl_typesupport_fastrtps_cppExport-noconfig.cmake
+[13.557s] -- Installing: /home/iris1/swarm_ws/src/orin/install/swarm_msgs/share/swarm_msgs/cmake/swarm_msgs__rosidl_typesupport_introspection_cppExport.cmake
+[13.558s] -- Installing: /home/iris1/swarm_ws/src/orin/install/swarm_msgs/share/swarm_msgs/cmake/swarm_msgs__rosidl_typesupport_introspection_cppExport-noconfig.cmake
+[13.558s] -- Installing: /home/iris1/swarm_ws/src/orin/install/swarm_msgs/share/swarm_msgs/cmake/swarm_msgs__rosidl_typesupport_cppExport.cmake
+[13.558s] -- Installing: /home/iris1/swarm_ws/src/orin/install/swarm_msgs/share/swarm_msgs/cmake/swarm_msgs__rosidl_typesupport_cppExport-noconfig.cmake
+[13.559s] -- Installing: /home/iris1/swarm_ws/src/orin/install/swarm_msgs/share/swarm_msgs/cmake/export_swarm_msgs__rosidl_generator_pyExport.cmake
+[13.559s] -- Installing: /home/iris1/swarm_ws/src/orin/install/swarm_msgs/share/swarm_msgs/cmake/export_swarm_msgs__rosidl_generator_pyExport-noconfig.cmake
+[13.559s] -- Installing: /home/iris1/swarm_ws/src/orin/install/swarm_msgs/share/swarm_msgs/cmake/rosidl_cmake-extras.cmake
+[13.560s] -- Installing: /home/iris1/swarm_ws/src/orin/install/swarm_msgs/share/swarm_msgs/cmake/ament_cmake_export_dependencies-extras.cmake
+[13.560s] -- Installing: /home/iris1/swarm_ws/src/orin/install/swarm_msgs/share/swarm_msgs/cmake/ament_cmake_export_include_directories-extras.cmake
+[13.560s] -- Installing: /home/iris1/swarm_ws/src/orin/install/swarm_msgs/share/swarm_msgs/cmake/ament_cmake_export_libraries-extras.cmake
+[13.561s] -- Installing: /home/iris1/swarm_ws/src/orin/install/swarm_msgs/share/swarm_msgs/cmake/ament_cmake_export_targets-extras.cmake
+[13.561s] -- Installing: /home/iris1/swarm_ws/src/orin/install/swarm_msgs/share/swarm_msgs/cmake/rosidl_cmake_export_typesupport_targets-extras.cmake
+[13.561s] -- Installing: /home/iris1/swarm_ws/src/orin/install/swarm_msgs/share/swarm_msgs/cmake/rosidl_cmake_export_typesupport_libraries-extras.cmake
+[13.562s] -- Installing: /home/iris1/swarm_ws/src/orin/install/swarm_msgs/share/swarm_msgs/cmake/swarm_msgsConfig.cmake
+[13.562s] -- Installing: /home/iris1/swarm_ws/src/orin/install/swarm_msgs/share/swarm_msgs/cmake/swarm_msgsConfig-version.cmake
+[13.562s] -- Installing: /home/iris1/swarm_ws/src/orin/install/swarm_msgs/share/swarm_msgs/package.xml
+[13.568s] Invoked command in '/home/iris1/swarm_ws/src/orin/build/swarm_msgs' returned '0': CMAKE_PREFIX_PATH=${CMAKE_PREFIX_PATH}:/home/iris1/swarm_ws/install/leader_pkg:/home/iris1/swarm_ws/install/follower_pkg:/opt/ros/humble /usr/bin/cmake --install /home/iris1/swarm_ws/src/orin/build/swarm_msgs

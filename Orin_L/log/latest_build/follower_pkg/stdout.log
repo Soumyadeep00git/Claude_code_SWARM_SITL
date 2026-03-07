@@ -1,0 +1,46 @@
+running egg_info
+creating ../build/follower_pkg/follower_pkg.egg-info
+writing ../build/follower_pkg/follower_pkg.egg-info/PKG-INFO
+writing dependency_links to ../build/follower_pkg/follower_pkg.egg-info/dependency_links.txt
+writing entry points to ../build/follower_pkg/follower_pkg.egg-info/entry_points.txt
+writing requirements to ../build/follower_pkg/follower_pkg.egg-info/requires.txt
+writing top-level names to ../build/follower_pkg/follower_pkg.egg-info/top_level.txt
+writing manifest file '../build/follower_pkg/follower_pkg.egg-info/SOURCES.txt'
+reading manifest file '../build/follower_pkg/follower_pkg.egg-info/SOURCES.txt'
+writing manifest file '../build/follower_pkg/follower_pkg.egg-info/SOURCES.txt'
+running build
+running build_py
+creating /home/iris1/swarm_ws/src/orin/build/follower_pkg/build
+creating /home/iris1/swarm_ws/src/orin/build/follower_pkg/build/lib
+creating /home/iris1/swarm_ws/src/orin/build/follower_pkg/build/lib/follower_pkg
+copying follower_pkg/follower_control_node.py -> /home/iris1/swarm_ws/src/orin/build/follower_pkg/build/lib/follower_pkg
+copying follower_pkg/config_loader.py -> /home/iris1/swarm_ws/src/orin/build/follower_pkg/build/lib/follower_pkg
+copying follower_pkg/__init__.py -> /home/iris1/swarm_ws/src/orin/build/follower_pkg/build/lib/follower_pkg
+copying follower_pkg/swarm_bridge_node.py -> /home/iris1/swarm_ws/src/orin/build/follower_pkg/build/lib/follower_pkg
+running install
+running install_lib
+creating /home/iris1/swarm_ws/src/orin/install/follower_pkg/lib/python3.10/site-packages/follower_pkg
+copying /home/iris1/swarm_ws/src/orin/build/follower_pkg/build/lib/follower_pkg/follower_control_node.py -> /home/iris1/swarm_ws/src/orin/install/follower_pkg/lib/python3.10/site-packages/follower_pkg
+copying /home/iris1/swarm_ws/src/orin/build/follower_pkg/build/lib/follower_pkg/config_loader.py -> /home/iris1/swarm_ws/src/orin/install/follower_pkg/lib/python3.10/site-packages/follower_pkg
+copying /home/iris1/swarm_ws/src/orin/build/follower_pkg/build/lib/follower_pkg/__init__.py -> /home/iris1/swarm_ws/src/orin/install/follower_pkg/lib/python3.10/site-packages/follower_pkg
+copying /home/iris1/swarm_ws/src/orin/build/follower_pkg/build/lib/follower_pkg/swarm_bridge_node.py -> /home/iris1/swarm_ws/src/orin/install/follower_pkg/lib/python3.10/site-packages/follower_pkg
+byte-compiling /home/iris1/swarm_ws/src/orin/install/follower_pkg/lib/python3.10/site-packages/follower_pkg/follower_control_node.py to follower_control_node.cpython-310.pyc
+byte-compiling /home/iris1/swarm_ws/src/orin/install/follower_pkg/lib/python3.10/site-packages/follower_pkg/config_loader.py to config_loader.cpython-310.pyc
+byte-compiling /home/iris1/swarm_ws/src/orin/install/follower_pkg/lib/python3.10/site-packages/follower_pkg/__init__.py to __init__.cpython-310.pyc
+byte-compiling /home/iris1/swarm_ws/src/orin/install/follower_pkg/lib/python3.10/site-packages/follower_pkg/swarm_bridge_node.py to swarm_bridge_node.cpython-310.pyc
+running install_data
+creating /home/iris1/swarm_ws/src/orin/install/follower_pkg/share/ament_index
+creating /home/iris1/swarm_ws/src/orin/install/follower_pkg/share/ament_index/resource_index
+creating /home/iris1/swarm_ws/src/orin/install/follower_pkg/share/ament_index/resource_index/packages
+copying resource/follower_pkg -> /home/iris1/swarm_ws/src/orin/install/follower_pkg/share/ament_index/resource_index/packages
+copying package.xml -> /home/iris1/swarm_ws/src/orin/install/follower_pkg/share/follower_pkg
+creating /home/iris1/swarm_ws/src/orin/install/follower_pkg/share/follower_pkg/launch
+copying launch/follower_bringup.launch.py -> /home/iris1/swarm_ws/src/orin/install/follower_pkg/share/follower_pkg/launch
+creating /home/iris1/swarm_ws/src/orin/install/follower_pkg/share/follower_pkg/config
+copying config/params.yaml -> /home/iris1/swarm_ws/src/orin/install/follower_pkg/share/follower_pkg/config
+running install_egg_info
+Copying ../build/follower_pkg/follower_pkg.egg-info to /home/iris1/swarm_ws/src/orin/install/follower_pkg/lib/python3.10/site-packages/follower_pkg-1.0.0-py3.10.egg-info
+running install_scripts
+Installing follower_control_node script to /home/iris1/swarm_ws/src/orin/install/follower_pkg/lib/follower_pkg
+Installing swarm_bridge_node script to /home/iris1/swarm_ws/src/orin/install/follower_pkg/lib/follower_pkg
+writing list of installed files to '/home/iris1/swarm_ws/src/orin/build/follower_pkg/install.log'

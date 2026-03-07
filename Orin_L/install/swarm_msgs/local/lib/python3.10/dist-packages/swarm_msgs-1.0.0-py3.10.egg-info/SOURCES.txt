@@ -1,0 +1,6 @@
+setup.py
+swarm_msgs/__init__.py
+swarm_msgs.egg-info/PKG-INFO
+swarm_msgs.egg-info/SOURCES.txt
+swarm_msgs.egg-info/dependency_links.txt
+swarm_msgs.egg-info/top_level.txt

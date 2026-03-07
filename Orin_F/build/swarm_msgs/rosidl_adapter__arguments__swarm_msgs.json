@@ -1,0 +1,8 @@
+{
+  "package_name": "swarm_msgs",
+  "non_idl_tuples": [
+    "/home/iris1/swarm_ws/src/orin/swarm_msgs:msg/PeerState.msg",
+    "/home/iris1/swarm_ws/src/orin/swarm_msgs:msg/PeerStates.msg",
+    "/home/iris1/swarm_ws/src/orin/swarm_msgs:msg/SwarmCommand.msg"
+  ]
+}

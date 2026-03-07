@@ -1,0 +1,18 @@
+# ================================================================
+#  FAILSAFE CONFIGURATION — single source of truth
+# ================================================================
+#  All failsafe tunables live here. No other file should define
+#  these defaults. Load with:
+#
+#    from failsafe_lib import load_config
+#    fs_cfg = load_config(home_lat=-35.363, home_lon=149.165)
+#
+#  home_lat/lon are deployment params (from env), not defined here.
+# ================================================================
+
+failsafe:
+  geofence_radius_m: 1000.0       # HOVER/RTL if leader or follower beyond this from home (m)
+  deadman_ticks: 20               # ticks with no own GPS before DEADMAN (RTL)
+  leader_stale_ticks: 50          # ticks before LEADER_STALE escalates to HOVER
+  catchup_timeout_ticks: 0        # disabled — operator RTLs manually from GCS
+  max_altitude_m: 100.0           # HOVER if follower altitude exceeds this (m)

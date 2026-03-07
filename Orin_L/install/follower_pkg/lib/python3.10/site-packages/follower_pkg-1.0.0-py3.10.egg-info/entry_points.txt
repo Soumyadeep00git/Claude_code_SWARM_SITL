@@ -1,0 +1,4 @@
+[console_scripts]
+follower_control_node = follower_pkg.follower_control_node:main
+swarm_bridge_node = follower_pkg.swarm_bridge_node:main
+

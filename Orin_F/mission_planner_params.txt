@@ -1,0 +1,78 @@
+================================================================
+ MISSION PLANNER PARAMETER CHANGES — CubeOrange+ (8S LiPo)
+ Date: 2026-03-07
+================================================================
+
+── CHANGES MADE ────────────────────────────────────────────────
+
+Parameter               Default     Your Value   Notes
+---------------------------------------------------------------
+FS_GCS_ENABLE           0           4            SmartRTL/Land (change to 2 — pending)
+FENCE_ALT_MAX           100         5            Altitude ceiling 5m
+FENCE_ENABLE            0           1            Geofence enabled
+FENCE_RADIUS            300         70           Circle fence 70m
+BATT2_ARM_MAH           —           3800         Won't arm below 3800mAh
+BATT2_ARM_VOLT          0           32           Won't arm below 32V (4.0V/cell x8)
+BATT2_CAPACITY          3300        4500         Battery capacity 4500mAh
+BATT2_CRT_MAH           0           2200         Critical at 2200mAh remaining
+BATT2_CRT_VOLT          0           26.4         Critical at 26.4V (3.3V/cell x8)
+BATT2_FS_CRT_ACT        0           1            Critical = Land immediately
+BATT2_FS_LOW_ACT        0           2            Low = RTL (fly home)
+BATT2_LOW_MAH           0           3000         Low warning at 3000mAh remaining
+BATT2_LOW_VOLT          0           28           Low warning at 28V (3.5V/cell x8)
+
+── UNCHANGED (VERIFIED OK) ─────────────────────────────────────
+
+Parameter               Value       Notes
+---------------------------------------------------------------
+FS_CRASH_CHECK          1           Crash detection enabled
+FS_DR_ENABLE            2           Dead reckoning RTL
+FS_DR_TIMEOUT           30          30s dead reckoning timeout
+FS_EKF_ACTION           1           EKF fail = Land
+FS_EKF_FILT             5           EKF filter 5Hz
+FS_EKF_THRESH           0.8         EKF variance threshold
+FS_GCS_TIMEOUT          5           5s heartbeat timeout
+FS_OPTIONS              16          Failsafe options bitmask
+FS_THR_ENABLE           1           RC loss = RTL
+FS_THR_VALUE            975         RC loss PWM threshold
+FS_VIBE_ENABLE          1           Vibration failsafe enabled
+FENCE_ACTION            1           Fence breach = RTL
+FENCE_MARGIN            2           2m fence buffer
+FENCE_TYPE              7           Alt + Circle + Polygon
+BATT2_LOW_TIMER         10          10s before low battery triggers
+BATT2_MONITOR           4           Battery monitor enabled
+
+── STILL PENDING ───────────────────────────────────────────────
+
+Parameter               Current     Change To    Why
+---------------------------------------------------------------
+FS_GCS_ENABLE           4           2            SmartRTL/RTL not SmartRTL/Land
+SYSID_THISMAV           ?           1 or 2       Must match MAVROS target_system_id
+BATT_FS_LOW_ACT         ?           2 (RTL)      Primary battery not verified
+BATT_CRT_VOLT           ?           26.4         Primary battery not verified
+BATT_LOW_VOLT           ?           28           Primary battery not verified
+BATT_FS_CRT_ACT         ?           1 (Land)     Primary battery not verified
+
+── JETSON PARAMS CHANGED TO MATCH ──────────────────────────────
+
+File: failsafe_lib/config.yaml
+  geofence_radius_m:   500 → 50    (inside MP FENCE_RADIUS=70m)
+  max_altitude_m:      30  → 3     (inside MP FENCE_ALT_MAX=5m)
+
+File: Follower/config/params.yaml
+  takeoff_alt_m:       10  → 3     (below MP FENCE_ALT_MAX=5m)
+
+── LAYERED FAILSAFE SUMMARY ────────────────────────────────────
+
+                        Jetson (soft, first)    ArduPilot (hard, backup)
+Geofence:               HOVER at 50m            RTL at 70m
+Altitude ceiling:       HOVER at 3m             RTL at 5m
+Battery low:            —                       RTL at 28V
+Battery critical:       —                       LAND at 26.4V
+GPS loss:               LAND after 2s           LAND (EKF failsafe)
+Leader stale:           HOVER after 5s          —
+Jetson death:           —                       SmartRTL/Land after 5s (change to RTL)
+RC loss:                RTL after 3s (leader)   RTL (FS_THR)
+Crash:                  —                       Disarm
+EKF failure:            —                       Land
+Vibration:              —                       Modified alt estimation

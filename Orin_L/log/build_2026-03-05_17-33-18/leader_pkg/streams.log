@@ -1,0 +1,48 @@
+[1.998s] Invoking command in '/home/iris1/swarm_ws/src/orin/Leader': AMENT_PREFIX_PATH=/home/iris1/swarm_ws/src/orin/install/swarm_msgs:${AMENT_PREFIX_PATH} CMAKE_PREFIX_PATH=/home/iris1/swarm_ws/src/orin/install/swarm_msgs:${CMAKE_PREFIX_PATH} LD_LIBRARY_PATH=/home/iris1/swarm_ws/src/orin/install/swarm_msgs/lib:/home/iris1/swarm_ws/install/swarm_msgs/lib:/opt/ros/humble/opt/rviz_ogre_vendor/lib:/opt/ros/humble/lib/aarch64-linux-gnu:/opt/ros/humble/lib:/usr/local/cuda-12.6/lib64 PYTHONPATH=/home/iris1/swarm_ws/src/orin/build/leader_pkg/prefix_override:/usr/lib/python3/dist-packages/colcon_core/task/python/colcon_distutils_commands:/home/iris1/swarm_ws/src/orin/install/leader_pkg/lib/python3.10/site-packages:/home/iris1/swarm_ws/src/orin/install/swarm_msgs/local/lib/python3.10/dist-packages:${PYTHONPATH} /usr/bin/python3 -W ignore:setup.py install is deprecated -W ignore:easy_install command is deprecated setup.py egg_info --egg-base ../build/leader_pkg build --build-base /home/iris1/swarm_ws/src/orin/build/leader_pkg/build install --record /home/iris1/swarm_ws/src/orin/build/leader_pkg/install.log --single-version-externally-managed install_data
+[2.526s] running egg_info
+[2.527s] creating ../build/leader_pkg/leader_pkg.egg-info
+[2.527s] writing ../build/leader_pkg/leader_pkg.egg-info/PKG-INFO
+[2.528s] writing dependency_links to ../build/leader_pkg/leader_pkg.egg-info/dependency_links.txt
+[2.529s] writing entry points to ../build/leader_pkg/leader_pkg.egg-info/entry_points.txt
+[2.529s] writing requirements to ../build/leader_pkg/leader_pkg.egg-info/requires.txt
+[2.530s] writing top-level names to ../build/leader_pkg/leader_pkg.egg-info/top_level.txt
+[2.530s] writing manifest file '../build/leader_pkg/leader_pkg.egg-info/SOURCES.txt'
+[2.534s] reading manifest file '../build/leader_pkg/leader_pkg.egg-info/SOURCES.txt'
+[2.535s] writing manifest file '../build/leader_pkg/leader_pkg.egg-info/SOURCES.txt'
+[2.536s] running build
+[2.536s] running build_py
+[2.536s] creating /home/iris1/swarm_ws/src/orin/build/leader_pkg/build
+[2.537s] creating /home/iris1/swarm_ws/src/orin/build/leader_pkg/build/lib
+[2.537s] creating /home/iris1/swarm_ws/src/orin/build/leader_pkg/build/lib/leader_pkg
+[2.537s] copying leader_pkg/leader_control_node.py -> /home/iris1/swarm_ws/src/orin/build/leader_pkg/build/lib/leader_pkg
+[2.538s] copying leader_pkg/config_loader.py -> /home/iris1/swarm_ws/src/orin/build/leader_pkg/build/lib/leader_pkg
+[2.538s] copying leader_pkg/__init__.py -> /home/iris1/swarm_ws/src/orin/build/leader_pkg/build/lib/leader_pkg
+[2.538s] copying leader_pkg/swarm_bridge_node.py -> /home/iris1/swarm_ws/src/orin/build/leader_pkg/build/lib/leader_pkg
+[2.539s] running install
+[2.540s] running install_lib
+[2.541s] creating /home/iris1/swarm_ws/src/orin/install/leader_pkg/lib/python3.10/site-packages/leader_pkg
+[2.542s] copying /home/iris1/swarm_ws/src/orin/build/leader_pkg/build/lib/leader_pkg/leader_control_node.py -> /home/iris1/swarm_ws/src/orin/install/leader_pkg/lib/python3.10/site-packages/leader_pkg
+[2.542s] copying /home/iris1/swarm_ws/src/orin/build/leader_pkg/build/lib/leader_pkg/config_loader.py -> /home/iris1/swarm_ws/src/orin/install/leader_pkg/lib/python3.10/site-packages/leader_pkg
+[2.542s] copying /home/iris1/swarm_ws/src/orin/build/leader_pkg/build/lib/leader_pkg/__init__.py -> /home/iris1/swarm_ws/src/orin/install/leader_pkg/lib/python3.10/site-packages/leader_pkg
+[2.543s] copying /home/iris1/swarm_ws/src/orin/build/leader_pkg/build/lib/leader_pkg/swarm_bridge_node.py -> /home/iris1/swarm_ws/src/orin/install/leader_pkg/lib/python3.10/site-packages/leader_pkg
+[2.544s] byte-compiling /home/iris1/swarm_ws/src/orin/install/leader_pkg/lib/python3.10/site-packages/leader_pkg/leader_control_node.py to leader_control_node.cpython-310.pyc
+[2.546s] byte-compiling /home/iris1/swarm_ws/src/orin/install/leader_pkg/lib/python3.10/site-packages/leader_pkg/config_loader.py to config_loader.cpython-310.pyc
+[2.548s] byte-compiling /home/iris1/swarm_ws/src/orin/install/leader_pkg/lib/python3.10/site-packages/leader_pkg/__init__.py to __init__.cpython-310.pyc
+[2.548s] byte-compiling /home/iris1/swarm_ws/src/orin/install/leader_pkg/lib/python3.10/site-packages/leader_pkg/swarm_bridge_node.py to swarm_bridge_node.cpython-310.pyc
+[2.559s] running install_data
+[2.559s] creating /home/iris1/swarm_ws/src/orin/install/leader_pkg/share/ament_index
+[2.559s] creating /home/iris1/swarm_ws/src/orin/install/leader_pkg/share/ament_index/resource_index
+[2.560s] creating /home/iris1/swarm_ws/src/orin/install/leader_pkg/share/ament_index/resource_index/packages
+[2.560s] copying resource/leader_pkg -> /home/iris1/swarm_ws/src/orin/install/leader_pkg/share/ament_index/resource_index/packages
+[2.560s] copying package.xml -> /home/iris1/swarm_ws/src/orin/install/leader_pkg/share/leader_pkg
+[2.560s] creating /home/iris1/swarm_ws/src/orin/install/leader_pkg/share/leader_pkg/launch
+[2.560s] copying launch/leader_bringup.launch.py -> /home/iris1/swarm_ws/src/orin/install/leader_pkg/share/leader_pkg/launch
+[2.561s] creating /home/iris1/swarm_ws/src/orin/install/leader_pkg/share/leader_pkg/config
+[2.561s] copying config/params.yaml -> /home/iris1/swarm_ws/src/orin/install/leader_pkg/share/leader_pkg/config
+[2.561s] running install_egg_info
+[2.565s] Copying ../build/leader_pkg/leader_pkg.egg-info to /home/iris1/swarm_ws/src/orin/install/leader_pkg/lib/python3.10/site-packages/leader_pkg-1.0.0-py3.10.egg-info
+[2.568s] running install_scripts
+[2.615s] Installing leader_control_node script to /home/iris1/swarm_ws/src/orin/install/leader_pkg/lib/leader_pkg
+[2.616s] Installing swarm_bridge_node script to /home/iris1/swarm_ws/src/orin/install/leader_pkg/lib/leader_pkg
+[2.616s] writing list of installed files to '/home/iris1/swarm_ws/src/orin/build/leader_pkg/install.log'
+[2.691s] Invoked command in '/home/iris1/swarm_ws/src/orin/Leader' returned '0': AMENT_PREFIX_PATH=/home/iris1/swarm_ws/src/orin/install/swarm_msgs:${AMENT_PREFIX_PATH} CMAKE_PREFIX_PATH=/home/iris1/swarm_ws/src/orin/install/swarm_msgs:${CMAKE_PREFIX_PATH} LD_LIBRARY_PATH=/home/iris1/swarm_ws/src/orin/install/swarm_msgs/lib:/home/iris1/swarm_ws/install/swarm_msgs/lib:/opt/ros/humble/opt/rviz_ogre_vendor/lib:/opt/ros/humble/lib/aarch64-linux-gnu:/opt/ros/humble/lib:/usr/local/cuda-12.6/lib64 PYTHONPATH=/home/iris1/swarm_ws/src/orin/build/leader_pkg/prefix_override:/usr/lib/python3/dist-packages/colcon_core/task/python/colcon_distutils_commands:/home/iris1/swarm_ws/src/orin/install/leader_pkg/lib/python3.10/site-packages:/home/iris1/swarm_ws/src/orin/install/swarm_msgs/local/lib/python3.10/dist-packages:${PYTHONPATH} /usr/bin/python3 -W ignore:setup.py install is deprecated -W ignore:easy_install command is deprecated setup.py egg_info --egg-base ../build/leader_pkg build --build-base /home/iris1/swarm_ws/src/orin/build/leader_pkg/build install --record /home/iris1/swarm_ws/src/orin/build/leader_pkg/install.log --single-version-externally-managed install_data

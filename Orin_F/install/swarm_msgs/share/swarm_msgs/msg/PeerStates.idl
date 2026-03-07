@@ -1,0 +1,73 @@
+// generated from rosidl_adapter/resource/msg.idl.em
+// with input from swarm_msgs/msg/PeerStates.msg
+// generated code does not contain a copyright notice
+
+#include "builtin_interfaces/msg/Time.idl"
+#include "swarm_msgs/msg/PeerState.idl"
+
+module swarm_msgs {
+  module msg {
+    @verbatim (language="comment", text=
+      "Array of all non-stale peer states")
+    struct PeerStates {
+      builtin_interfaces::msg::Time header_stamp;
+
+      sequence<swarm_msgs::msg::PeerState> peers;
+
+      @verbatim (language="comment", text=
+        "Peer Jetson liveness (from HEARTBEAT over RFD900x radio)" "\n"
+        "true if HEARTBEAT received within timeout")
+      boolean peer_jetson_alive;
+
+      @verbatim (language="comment", text=
+        "Unix timestamp of last peer HEARTBEAT")
+      double peer_last_heartbeat;
+
+      @verbatim (language="comment", text=
+        "Own battery state (from local /mavros/battery — SYS_STATUS ID1)" "\n"
+        "Volts")
+      float own_battery_voltage;
+
+      @verbatim (language="comment", text=
+        "Amps")
+      float own_battery_current;
+
+      @verbatim (language="comment", text=
+        "0.0–1.0 fraction (-1.0 = unknown)")
+      float own_battery_remaining;
+
+      @verbatim (language="comment", text=
+        "RFD900x radio link quality (from RADIO_STATUS ID109 injected by modem)" "\n"
+        "Local received signal strength (0-255)")
+      uint8 radio_rssi;
+
+      @verbatim (language="comment", text=
+        "Remote received signal strength (0-255)")
+      uint8 radio_remrssi;
+
+      @verbatim (language="comment", text=
+        "Transmit buffer free space % (0-100)")
+      uint8 radio_txbuf;
+
+      @verbatim (language="comment", text=
+        "Local background noise (0-255)")
+      uint8 radio_noise;
+
+      @verbatim (language="comment", text=
+        "Remote background noise (0-255)")
+      uint8 radio_remnoise;
+
+      @verbatim (language="comment", text=
+        "Receive error count")
+      uint16 radio_rxerrors;
+
+      @verbatim (language="comment", text=
+        "true if RADIO_STATUS received within timeout")
+      boolean radio_link_alive;
+
+      @verbatim (language="comment", text=
+        "Unix timestamp of last RADIO_STATUS")
+      double radio_last_status;
+    };
+  };
+};

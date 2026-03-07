@@ -1,0 +1,6 @@
+msg/PeerState.idl
+msg/PeerState.msg
+msg/PeerStates.idl
+msg/PeerStates.msg
+msg/SwarmCommand.idl
+msg/SwarmCommand.msg

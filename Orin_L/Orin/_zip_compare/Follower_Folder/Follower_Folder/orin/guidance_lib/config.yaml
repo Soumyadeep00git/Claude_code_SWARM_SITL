@@ -1,0 +1,60 @@
+# ================================================================
+#  FOLLOWER GUIDANCE CONFIGURATION
+# ================================================================
+#  Edit these values and load with:
+#    import yaml
+#    with open('config.yaml') as f:
+#        params = yaml.safe_load(f)
+#    cfg = GuidanceConfig(**params['guidance'])
+#
+#  Failsafe params (geofence, deadman, catchup timeout, altitude
+#  ceiling) are in failsafe_lib/config.yaml — the single source
+#  of truth. max_altitude_m is passed to GuidanceConfig at runtime.
+# ================================================================
+
+# ── Formation offset (NED meters from leader) ──────────────────
+offset:
+  north_m: -5.0        # negative = behind leader
+  east_m:  3.0         # positive = right of leader
+  down_m:  0.0         # 0 = same altitude as leader
+
+# ── Guidance gains and thresholds ───────────────────────────────
+guidance:
+  # Tracking mode (PD + feedforward)
+  kp: 0.7              # position gain (m/s per m error). Higher = snappier.
+  kd: 0.4              # velocity damping. Higher = less overshoot.
+  ff_gain: 0.8         # leader velocity feedforward. 0=reactive, 1=full prediction.
+
+  # Catch-up mode (kinematic speed limiting)
+  catchup_dist_m: 8.0  # error above this triggers CATCHUP
+  max_catchup_speed: 17.0  # absolute hard ceiling (m/s)
+  catchup_decel: 2.5   # assumed braking decel for v_max = sqrt(2*a*d) (m/s²)
+
+  # Evasion mode
+  safety_dist_m: 1.0   # peer distance below this triggers EVASION
+  escape_speed: 3.0    # repulsion speed in EVASION (m/s)
+
+  # Speed limits
+  max_speed: 17.0      # horizontal speed cap in TRACKING (m/s) — same as catchup ceiling
+  max_vertical_speed: 1.5  # vertical speed cap, all modes (m/s)
+  max_accel: 0.25      # max velocity change per tick (m/s). = 2.5 m/s² at 10Hz.
+                        #   WARNING: This is per-TICK, not per-second. If you change
+                        #   control_hz (e.g. to 20Hz), the effective acceleration doubles
+                        #   to 5.0 m/s². Always recalculate: accel = max_accel × control_hz.
+
+  # Altitude safety
+  min_altitude_m: 3.0       # soft floor: starts pushing up gradually
+  critical_altitude_m: 1.5  # hard floor: full push-up, emergency flag
+  deadzone_m: 0.5           # no tracking output below this error (hover)
+
+# ── Command smoother ───────────────────────────────────────────
+smoother:
+  alpha: 1.0           # EMA smoothing factor. 1.0 = no smoothing (raw guidance output).
+                        # For initial hardware testing, keep at 1.0 to see true guidance
+                        # behavior. Once validated, reduce to 0.3-0.5 for smoother flight.
+                        # Lower alpha = smoother but adds latency on top of GPS + radio lag.
+  deadband: 0.2        # horizontal speed below this snaps to 0 (hover).
+
+# ── Control loop ───────────────────────────────────────────────
+control:
+  rate_hz: 10          # guidance loop rate. Adjust max_accel if you change this.

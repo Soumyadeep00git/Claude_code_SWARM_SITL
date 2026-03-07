@@ -1,0 +1,76 @@
+// generated from rosidl_adapter/resource/msg.idl.em
+// with input from swarm_msgs/msg/PeerState.msg
+// generated code does not contain a copyright notice
+
+
+module swarm_msgs {
+  module msg {
+    @verbatim (language="comment", text=
+      "Single peer drone state — matches UDP wire format")
+    struct PeerState {
+      uint32 drone_id;
+
+      @verbatim (language="comment", text=
+        "degrees")
+      double latitude;
+
+      @verbatim (language="comment", text=
+        "degrees")
+      double longitude;
+
+      @verbatim (language="comment", text=
+        "meters (relative to home)")
+      double altitude;
+
+      @verbatim (language="comment", text=
+        "North velocity m/s")
+      double vn;
+
+      @verbatim (language="comment", text=
+        "East velocity m/s")
+      double ve;
+
+      @verbatim (language="comment", text=
+        "Down velocity m/s")
+      double vd;
+
+      @verbatim (language="comment", text=
+        "degrees")
+      double heading;
+
+      @verbatim (language="comment", text=
+        "Unix timestamp from sender")
+      double stamp;
+
+      @verbatim (language="comment", text=
+        "0=NONE, 1=TRACKING, 2=CATCHUP, 3=EVASION, 4=FAILSAFE")
+      uint8 guidance_mode;
+
+      @verbatim (language="comment", text=
+        "FC state (from peer HEARTBEAT over RFD900x radio)" "\n"
+        "ArduPilot mode: 0=STABILIZE 4=GUIDED 5=LOITER 6=RTL etc.")
+      uint8 fc_mode_code;
+
+      @verbatim (language="comment", text=
+        "Peer FC armed?")
+      boolean fc_armed;
+
+      @verbatim (language="comment", text=
+        "Peer FC connected to MAVROS2?")
+      boolean fc_connected;
+
+      @verbatim (language="comment", text=
+        "Battery state (from peer /mavros/battery relayed over RFD900x as NAMED_VALUE_FLOAT)" "\n"
+        "Volts")
+      float battery_voltage;
+
+      @verbatim (language="comment", text=
+        "Amps (negative = discharging on some FCs)")
+      float battery_current;
+
+      @verbatim (language="comment", text=
+        "0.0–1.0 fraction (-1.0 = unknown)")
+      float battery_remaining;
+    };
+  };
+};

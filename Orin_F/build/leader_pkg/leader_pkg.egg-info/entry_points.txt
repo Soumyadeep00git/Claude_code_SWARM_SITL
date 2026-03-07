@@ -1,0 +1,4 @@
+[console_scripts]
+leader_control_node = leader_pkg.leader_control_node:main
+swarm_bridge_node = leader_pkg.swarm_bridge_node:main
+

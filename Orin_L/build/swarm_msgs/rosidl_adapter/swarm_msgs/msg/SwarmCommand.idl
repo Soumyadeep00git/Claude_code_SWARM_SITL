@@ -1,0 +1,52 @@
+// generated from rosidl_adapter/resource/msg.idl.em
+// with input from swarm_msgs/msg/SwarmCommand.msg
+// generated code does not contain a copyright notice
+
+
+module swarm_msgs {
+  module msg {
+    module SwarmCommand_Constants {
+      @verbatim (language="comment", text=
+        "Command constants")
+      const uint8 CMD_RTL = 1;
+      const uint8 CMD_LAND = 2;
+      const uint8 CMD_KILL = 3;
+      const uint8 CMD_FOLLOW = 4;
+      const uint8 CMD_HOVER = 5;
+      const uint8 CMD_TAKEOFF = 6;
+      const uint8 CMD_WASD = 10;
+      const uint8 CMD_WAYPOINT = 11;
+      const uint8 CMD_SPEED = 12;
+      const uint8 CMD_ALTITUDE = 13;
+    };
+    @verbatim (language="comment", text=
+      "GCS command — matches UDP command wire format")
+    struct SwarmCommand {
+      uint8 cmd;
+
+      @verbatim (language="comment", text=
+        "WASD north velocity (CMD_WASD)")
+      float vn;
+
+      @verbatim (language="comment", text=
+        "WASD east velocity (CMD_WASD)")
+      float ve;
+
+      @verbatim (language="comment", text=
+        "vertical velocity (CMD_ALTITUDE)")
+      float vd;
+
+      @verbatim (language="comment", text=
+        "waypoint latitude (CMD_WAYPOINT)")
+      double lat;
+
+      @verbatim (language="comment", text=
+        "waypoint longitude (CMD_WAYPOINT)")
+      double lon;
+
+      @verbatim (language="comment", text=
+        "speed setting (CMD_SPEED)")
+      float speed;
+    };
+  };
+};

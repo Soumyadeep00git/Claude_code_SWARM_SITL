@@ -1,0 +1,26 @@
+# Leader drone ROS2 parameters
+# ── Leader Jetson: iris1@172.16.0.159 ──
+# Change hierarchy_path if your Jetson username differs:
+#   /home/<your_username>/hierarchy.yaml
+# Change gcs_host to your GCS laptop's WiFi/LAN IP address.
+# Verify serial ports with: ls /dev/ttyUSB*
+#   ttyUSB0 = CubeOrange+ (TELEM2 via USB-TTL)
+#   ttyUSB1 = RFD900x radio (USB)
+
+leader_control_node:
+  ros__parameters:
+    drone_id: 1
+    hierarchy_path: "/home/iris1/hierarchy.yaml"   # iris1 = Leader Jetson username
+    control_hz: 10
+    takeoff_alt_m: 10.0
+    gcs_host: "172.16.0.26"        # Laptop WiFi IP on current network
+    rc_loss_timeout: 3.0           # seconds without RC before failsafe RTL
+
+swarm_bridge_node:
+  ros__parameters:
+    drone_id: 1
+    hierarchy_path: "/home/iris1/hierarchy.yaml"   # iris1 = Leader Jetson username
+    gcs_host: "172.16.0.26"        # Laptop WiFi IP on current network
+    peer_stale_timeout: 5.0
+    radio_device: "/dev/ttyUSB1"   # RFD900x serial port
+    radio_baud: 115200             # RFD900x baud rate (must match RFD900x firmware setting)

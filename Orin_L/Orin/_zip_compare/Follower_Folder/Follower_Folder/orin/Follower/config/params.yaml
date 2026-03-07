@@ -1,0 +1,26 @@
+# Follower drone ROS2 parameters
+# ── Follower Jetson: gaurav@172.16.0.199 ──
+# Change hierarchy_path if your Jetson username differs:
+#   /home/<your_username>/hierarchy.yaml
+# Change gcs_host to your GCS laptop's WiFi/LAN IP address.
+# Verify serial ports with: ls /dev/ttyUSB*
+#   ttyUSB0 = CubeOrange+ (TELEM2 via USB-TTL)
+#   ttyUSB1 = RFD900x radio (USB)
+
+follower_control_node:
+  ros__parameters:
+    drone_id: 2
+    hierarchy_path: "/home/gaurav/hierarchy.yaml"  # gaurav = Follower Jetson username
+    control_hz: 10
+    takeoff_alt_m: 10.0
+    gcs_host: "172.16.0.26"        # Laptop WiFi IP on current network
+    bench_test: true
+
+swarm_bridge_node:
+  ros__parameters:
+    drone_id: 2
+    hierarchy_path: "/home/gaurav/hierarchy.yaml"  # gaurav = Follower Jetson username
+    gcs_host: "172.16.0.26"        # Laptop WiFi IP on current network
+    peer_stale_timeout: 5.0
+    radio_device: "/dev/ttyUSB1"   # RFD900x serial port
+    radio_baud: 115200             # RFD900x baud rate (must match RFD900x firmware setting)
